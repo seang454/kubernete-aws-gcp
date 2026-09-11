@@ -1,335 +1,334 @@
-# Kubespray Cluster Configuration Guide (`group_vars/k8s_cluster/`)
+# Beginner's Guide to Kubespray Cluster Configuration (`group_vars/k8s_cluster/`)
 
-This guide explains the architecture, purpose, configuration options, and real-world examples for all configuration files located in:
+> **Who this guide is for**: If you are new to Kubernetes, networking, or infrastructure, and computer shortcuts/acronyms (like CNI, CIDR, MTU, VXLAN, IPAM) sound confusing, this document explains everything in plain English with everyday analogies.
+
+All configuration files covered in this guide are located in:
 `terraform/ansible_kubespray_k8s/kubespray/inventory/sample/group_vars/k8s_cluster/`
 
 ---
 
-## 1. Architectural Overview & Group Hierarchy
+## 📖 Chapter 1: The Jargon Buster (Translating the Shortcuts)
 
-In Ansible, variables defined inside `group_vars/<group_name>/` are automatically loaded and applied to every host belonging to `<group_name>`.
+Before diving into configuration files, here is an everyday translation of all technical shortcuts and acronyms used in this project:
 
-In Kubespray HA topology:
+| Shortcut | Full Technical Name | Plain English Translation | Real-World Analogy |
+| :--- | :--- | :--- | :--- |
+| **VM** | Virtual Machine | A rented computer running in the cloud (Google Cloud or Amazon AWS). | A rented apartment inside a high-rise building. |
+| **K8s** | Kubernetes ("K" + 8 letters + "s") | Software that automatically runs, organizes, and heals your application containers across many computers. | The head conductor of an orchestra, making sure all musicians play on cue. |
+| **Kubespray** | *(Tool Name)* | An automated installer that downloads and builds a production Kubernetes cluster using Ansible. | An automated robotic construction team that builds a factory from blueprints. |
+| **Ansible** | *(Tool Name)* | A remote-control tool that logs into your cloud computers over SSH and runs setup commands. | A master checklist and remote-control operator. |
+| **Pod** | *(Kubernetes concept)* | The smallest unit in Kubernetes: one or more running containers sharing an IP address. | A shipping container holding your application code. |
+| **Node** | *(Kubernetes concept)* | A computer in your cluster. Either a **Master** (brain) or a **Worker** (muscle). | A factory building where shipping containers are placed. |
+| **IP** | Internet Protocol Address | A unique number given to a computer or container so others can send messages to it. | A phone number or street house address. |
+| **CIDR** | Classless Inter-Domain Routing | A shorthand notation to describe a whole range of IP addresses (e.g. `10.0.0.0/24`). | An area code or postal ZIP code that covers an entire neighborhood. |
+| **Subnet** | Sub-Network | A smaller slice of an IP address range carved out for a specific team or purpose. | A specific street inside a postal ZIP code. |
+| **CNI** | Container Network Interface | The network plugin software responsible for giving each Pod an IP address and connecting pods across machines. | The postal delivery truck fleet that moves packages between shipping containers. |
+| **IPAM** | IP Address Management | The feature inside the CNI that allocates unique IP addresses to Pods without duplicates. | The city clerk who assigns house numbers to newly built houses. |
+| **MTU** | Maximum Transmission Unit | The maximum size (in bytes) of a single data packet that can travel across a network cable without breaking apart. | The maximum weight a single postal envelope is allowed to have before the post office rejects it. |
+| **Overlay / Tunnel** | *(Networking concept)* | A virtual road built on top of the public internet to connect computers securely. | An underground tunnel connecting two cities so cars do not have to drive through public traffic. |
+| **VXLAN** | Virtual Extensible Local Area Network | A technology that wraps Pod traffic inside normal UDP packets so they can cross any network. | Putting a private letter inside a FedEx envelope so it can travel across any postal system. |
+| **WireGuard** | *(VPN Software)* | High-speed, encrypted tunnel software running directly inside the Linux kernel. | An armored, bulletproof glass tunnel connecting Google Cloud and Amazon AWS. |
+| **NAT / SNAT** | (Source) Network Address Translation | Rewriting a private IP to a public IP so that machines on private networks can access the internet. | An office receptionist who dials outside phone numbers on behalf of employees at private desk extensions. |
+| **RBAC** | Role-Based Access Control | A security system that restricts what actions a user or application can perform in the cluster. | Keycard access levels in an office building (e.g., interns cannot enter the server room). |
+
+---
+
+## 🏛️ Chapter 2: The Big Picture (Our Hybrid GCP + AWS Cluster)
+
+Our cluster consists of **7 computers (nodes)** split across two completely different cloud providers:
+
+```
+┌────────────────────────────────────────────────────────┐       ┌────────────────────────────────────────────────────────┐
+│                  Google Cloud (GCP)                    │       │                   Amazon AWS                           │
+│                                                        │       │                                                        │
+│     Master 1              Master 2            Master 3 │       │     Worker 1            Worker 2            Worker 3   │
+│    (10.0.0.1)            (10.0.0.2)          (10.0.0.3)│       │    (10.0.0.4)          (10.0.0.5)          (10.0.0.6)  │
+│                                                        │       │                                             Worker 4   │
+│    THE "BRAINS" (Control Plane)                        │       │                                            (10.0.0.7)  │
+│    Make decisions, schedule pods, maintain state       │       │    THE "MUSCLE" (Worker Nodes)                         │
+│    Store data in the etcd database                     │       │    Run your actual web apps, APIs, and databases       │
+└───────────────────────────┬────────────────────────────┘       └───────────────────────────┬────────────────────────────┘
+                            │                                                                │
+                            └──────────────────── [ WIREGUARD TUNNEL ] ──────────────────────┘
+                                                 Flat Highway: 10.0.0.0/24
+```
+
+### Why WireGuard is Required
+* Google Cloud and Amazon AWS are completely isolated networks.
+* An AWS VM cannot talk to a Google Cloud private IP address (`10.10.x.x`) without an expensive dedicated fiber connection.
+* **WireGuard** creates an encrypted virtual highway (`10.0.0.1` – `10.0.0.7`).
+* Every node talks to every other node over this flat private road, keeping all Kubernetes traffic 100% encrypted and off the open internet.
+
+---
+
+## 🗂️ Chapter 3: The Address Book (`inventory.ini`)
+
+All configuration variables in `group_vars/k8s_cluster/` are applied to the computers listed in [`inventory.ini`](file:///home/seang/kubernete-aws-gcp/terraform/ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini):
+
 ```ini
 [kube_control_plane]
-master01 ansible_host=34.x.x.1 ip=10.0.0.1 access_ip=10.0.0.1
-master02 ansible_host=34.x.x.2 ip=10.0.0.2 access_ip=10.0.0.2
-master03 ansible_host=34.x.x.3 ip=10.0.0.3 access_ip=10.0.0.3
+master01 ansible_host=34.128.10.15  ip=10.0.0.1 access_ip=10.0.0.1 etcd_member_name=etcd-1
+master02 ansible_host=34.128.10.16  ip=10.0.0.2 access_ip=10.0.0.2 etcd_member_name=etcd-2
+master03 ansible_host=34.128.10.17  ip=10.0.0.3 access_ip=10.0.0.3 etcd_member_name=etcd-3
+
+[etcd:children]
+kube_control_plane
 
 [kube_node]
-worker01 ansible_host=54.x.x.1 ip=10.0.0.4 access_ip=10.0.0.4
-worker02 ansible_host=54.x.x.2 ip=10.0.0.5 access_ip=10.0.0.5
-worker03 ansible_host=54.x.x.3 ip=10.0.0.6 access_ip=10.0.0.6
-worker04 ansible_host=54.x.x.4 ip=10.0.0.7 access_ip=10.0.0.7
+worker01 ansible_host=54.255.40.101 ip=10.0.0.4 access_ip=10.0.0.4
+worker02 ansible_host=54.255.40.102 ip=10.0.0.5 access_ip=10.0.0.5
+worker03 ansible_host=54.255.40.103 ip=10.0.0.6 access_ip=10.0.0.6
+worker04 ansible_host=54.255.40.104 ip=10.0.0.7 access_ip=10.0.0.7
 
 [k8s_cluster:children]
 kube_control_plane
 kube_node
 ```
 
-Because `k8s_cluster` is the parent group of both `kube_control_plane` (GCP) and `kube_node` (AWS), **all variables in this folder apply to all 7 nodes across both cloud providers**.
+### The 3 IP Settings Explained:
+1. **`ansible_host` (Public IP)**:
+   * Used **only by your workstation / deployer** to open an SSH terminal and install software on each VM over the internet.
+2. **`ip` (WireGuard IP: `10.0.0.x`)**:
+   * The IP address that internal Kubernetes programs on this machine (kubelet, etcd, kube-proxy) bind to and listen on.
+3. **`access_ip` (WireGuard IP: `10.0.0.x`)**:
+   * The IP address that **other cluster computers** use to call this machine. For example, Worker 1 dials `10.0.0.1:6443` to reach Master 1 securely over WireGuard.
 
-```
-inventory/sample/group_vars/
-└── k8s_cluster/
-    ├── k8s-cluster.yml          <-- Core cluster settings (K8s version, CIDRs, runtime, CNI selector)
-    ├── addons.yml               <-- Platform add-ons (Ingress NGINX, Cert-Manager, Metrics Server)
-    ├── kube_control_plane.yml   <-- Resource reservations for control plane hosts
-    │
-    ├── k8s-net-calico.yml       <-- Calico CNI (ACTIVE in our hybrid WireGuard cluster)
-    ├── k8s-net-cilium.yml       <-- Cilium eBPF CNI (dormant)
-    ├── k8s-net-flannel.yml      <-- Flannel CNI (dormant)
-    ├── k8s-net-kube-ovn.yml     <-- Kube-OVN CNI (dormant)
-    ├── k8s-net-kube-router.yml  <-- Kube-Router CNI (dormant)
-    ├── k8s-net-macvlan.yml      <-- Macvlan CNI (dormant)
-    └── k8s-net-custom-cni.yml   <-- Custom / Helm-based CNI (dormant)
-```
-
-> **How CNI selection works**:
-> The variable `kube_network_plugin` inside `k8s-cluster.yml` determines which CNI playbook runs. Only the matching `k8s-net-<plugin>.yml` file is evaluated during installation. All other `k8s-net-*.yml` files remain dormant.
+Because `kube_control_plane` and `kube_node` are grouped under `[k8s_cluster:children]`, **any file placed inside `group_vars/k8s_cluster/` automatically applies to all 7 machines**.
 
 ---
 
-## 2. Detailed Breakdown of Files
+## 📄 Chapter 4: The 4 Active Configuration Files
 
-### 2.1 `k8s-cluster.yml` — Core Cluster Configuration
-* **Purpose**: The master configuration file for the entire Kubernetes cluster. It specifies Kubernetes binary versions, container runtime engine, cluster network scopes (Pod CIDR & Service CIDR), DNS engine, and security authorization modes.
-* **When to Modify**: Whenever adjusting Kubernetes versions, subnet sizes, container runtimes, or switching network plugins.
+```
+inventory/sample/group_vars/k8s_cluster/
+├── k8s-cluster.yml          <-- 1. Core cluster settings (K8s version, CIDRs, runtime, CNI)
+├── k8s-net-calico.yml       <-- 2. Calico CNI (Active container networking & MTU clamping)
+├── addons.yml               <-- 3. Ingress, Cert-Manager, Metrics Server, Helm
+└── kube_control_plane.yml   <-- 4. RAM & CPU emergency reservations for Master nodes
+```
 
-#### Key Parameters
-* `kube_version`: Desired Kubernetes release (e.g., `v1.31.0`).
-* `kube_network_plugin`: Selected CNI plugin (`calico`, `cilium`, `flannel`, `kube-ovn`, `kube-router`, `macvlan`, `cni`).
-* `kube_pods_subnet`: Subnet range reserved for Pod IP addresses. Must not collide with cloud VPC or WireGuard subnets.
-* `kube_service_addresses`: Subnet range reserved for ClusterIP Services.
-* `kube_network_node_prefix`: Pod CIDR subnet allocated per individual node (default `/24` allows up to 254 pods per node).
-* `container_manager`: Container runtime daemon (`containerd` or `crio`).
-* `dns_mode`: Cluster internal DNS daemon (`coredns`).
+---
 
-#### Example Configuration
+### File 1: [`k8s-cluster.yml`](file:///home/seang/kubernete-aws-gcp/terraform/ansible_kubespray_k8s/kubespray/inventory/sample/group_vars/k8s_cluster/k8s-cluster.yml) — "The Master Rulebook"
+
+This is the main steering wheel for the cluster installation.
+
+#### 1. Kubernetes Version
 ```yaml
-# Kubernetes Core Settings
 kube_version: v1.31.0
-cluster_name: cluster.local
-container_manager: containerd
-dns_mode: coredns
+```
+* **Plain English**: Tells Kubespray which release of Kubernetes to download and install.
 
-# Selected Network Plugin
+#### 2. Network Plugin Selector
+```yaml
 kube_network_plugin: calico
-kube_network_plugin_multus: false
+```
+* **Plain English**: Chooses which CNI postal delivery service to install. We pick **Calico**.
+* **How it works**: Because this is set to `calico`, Kubespray only reads `k8s-net-calico.yml` and ignores `k8s-net-cilium.yml`, `k8s-net-flannel.yml`, etc.
 
-# Subnet Allocations (Disjoint from WireGuard 10.0.0.0/24)
-kube_service_addresses: 10.233.0.0/18
+#### 3. Pod IP Subnet Range (`kube_pods_subnet`)
+```yaml
 kube_pods_subnet: 10.233.64.0/18
 kube_network_node_prefix: 24
-
-# Directory Paths
-kube_config_dir: /etc/kubernetes
-kube_cert_dir: "{{ kube_config_dir }}/ssl"
 ```
+* **Plain English**: The pool of IP addresses reserved exclusively for application Pods.
+* **Analogy**: Imagine a brand-new planned city with **16,384 street address numbers** (`10.233.64.0/18`).
+* **`kube_network_node_prefix: 24`**: Calico divides the city into neighborhoods of **254 house numbers** each. Each of our 7 VMs gets its own neighborhood. When a Pod starts on Worker 1, it receives a unique address from Worker 1's neighborhood.
+* **Zero Collision**: This range does not overlap with WireGuard (`10.0.0.0/24`) or cloud VPCs (`10.10.x.x` / `10.20.x.x`).
+
+#### 4. Service IP Subnet Range (`kube_service_addresses`)
+```yaml
+kube_service_addresses: 10.233.0.0/18
+```
+* **Plain English**: The virtual IP addresses assigned to Kubernetes Services (internal load balancers).
+* **Analogy**: A main company switchboard phone number. If you have 3 database pods, Kubernetes creates 1 single switchboard number from this pool. Any app dialing that switchboard number automatically reaches a working database.
+
+#### 5. Container Runtime Engine
+```yaml
+container_manager: containerd
+```
+* **Plain English**: The low-level software that unpacks and runs container images. `containerd` is the modern industry standard that replaced Docker.
 
 ---
 
-### 2.2 `addons.yml` — Built-in Addons & Controllers
-* **Purpose**: Manages automated installation of official Kubernetes platform components, including Ingress controllers, TLS cert managers, resource metrics, web dashboards, and local storage provisioners.
-* **When to Modify**: When enabling or tailoring essential cluster applications during bootstrap.
+### File 2: [`k8s-net-calico.yml`](file:///home/seang/kubernete-aws-gcp/terraform/ansible_kubespray_k8s/kubespray/inventory/sample/group_vars/k8s_cluster/k8s-net-calico.yml) — "The Container Postal Service"
 
-#### Key Parameters
-* `ingress_nginx_enabled`: Deploys NGINX Ingress Controller.
-* `ingress_nginx_service_type`: Service type for ingress (`NodePort` or `LoadBalancer`).
-* `cert_manager_enabled`: Installs Jetstack Cert-Manager for automatic ACME (Let's Encrypt) SSL certificates.
-* `metrics_server_enabled`: Installs Kubernetes Metrics Server (required for `kubectl top` and HPA autoscalers).
-* `helm_enabled`: Installs Helm v3 binary on control plane nodes.
-* `dashboard_enabled`: Installs Kubernetes Web Dashboard UI.
-* `metallb_enabled`: Installs MetalLB software load balancer.
+Because `kube_network_plugin: calico` was selected in `k8s-cluster.yml`, this file sets up container-to-container routing across clouds.
 
-#### Example Configuration
+#### 1. WireGuard Interface Auto-Detection
 ```yaml
-# Helm CLI Installation
-helm_enabled: true
-
-# Metrics Server (Resource usage & Pod Autoscaling)
-metrics_server_enabled: true
-metrics_server_kubelet_insecure_tls: true
-metrics_server_metric_resolution: 15s
-
-# NGINX Ingress Controller
-ingress_nginx_enabled: true
-ingress_nginx_service_type: NodePort
-ingress_nginx_service_nodeport_http: 30080
-ingress_nginx_service_nodeport_https: 30081
-
-# Cert-Manager (Let's Encrypt TLS Automation)
-cert_manager_enabled: true
-cert_manager_namespace: "cert-manager"
-
-# Web Dashboard (Disabled by default for security)
-dashboard_enabled: false
+calico_ip_auto_method: "interface=wg.*"
 ```
+* **Plain English**: "Calico, when you start on any VM, find the network card that starts with `wg` (`wg0`), and use its WireGuard IP (`10.0.0.x`) to communicate with other nodes."
+* **What breaks if this is missing?**: Calico would default to the cloud provider's main network card (`eth0`). AWS nodes would try to send pod traffic to Google Cloud private IPs (`10.10.x.x`), which AWS cannot reach. Cross-cloud pod communication would completely fail!
 
----
-
-### 2.3 `k8s-net-calico.yml` — Calico CNI (Active CNI)
-* **Purpose**: Configures Tigera Calico network plugin. Calico provides Pod-to-Pod routing via VXLAN or BGP, network security policies, and IP address management (IPAM).
-* **Cross-Cloud WireGuard Specifics**:
-  1. **Interface Auto-Detection**: Public cloud nodes have multiple NICs (cloud private VPC IP on `eth0` and WireGuard overlay on `wg0`). Setting `calico_ip_auto_method: "interface=wg.*"` forces Calico to bind to the cross-cloud WireGuard overlay (`10.0.0.x`).
-  2. **MTU Clamping**: WireGuard encapsulation requires 80 bytes (giving `wg0` MTU 1420). Calico VXLAN encapsulation adds 50 bytes. Clamping `calico_mtu: 1370` prevents packet fragmentation across the internet.
-
-#### Example Configuration
+#### 2. Envelope Size Clamping (MTU = 1370)
 ```yaml
-# Calico Backend & Encapsulation
+calico_mtu: 1370
+calico_veth_mtu: 1370
+```
+* **Plain English**: "Never allow any container to send a data package larger than 1370 bytes."
+* **The "Envelope inside an Envelope" Problem**:
+  - The standard internet cable limit is **1500 bytes**.
+  - WireGuard encrypts each packet, adding an armored header of **80 bytes** &rarr; Leaves **1420 bytes** max for `wg0`.
+  - Calico VXLAN adds another envelope header of **50 bytes**.
+  - Calculation: `1420 (WireGuard) - 50 (VXLAN) = 1370 bytes`.
+* **What breaks if this is missing?**: If MTU is left at 1440 or 1500, large packets (like web images, file downloads, or SSL certificates) exceed the 1420-byte WireGuard tunnel limit. The packets get silently dropped. Websites freeze or randomly time out.
+
+#### 3. Outbound Internet for Pods
+```yaml
+nat_outgoing: true
+```
+* **Plain English**: Allows Pods to reach the outside internet (e.g. calling external APIs, downloading packages) by translating the Pod's internal IP to the node's public IP.
+
+#### 4. Encapsulation Mode
+```yaml
 calico_network_backend: vxlan
 calico_vxlan_mode: 'Always'
 calico_vxlan_port: 4789
-calico_vxlan_vni: 4096
+```
+* **Plain English**: Always wrap Pod data into standard VXLAN UDP packets so they can cross our WireGuard tunnel seamlessly.
 
-# MTU Clamping (1420 wg0 MTU - 50 VXLAN header = 1370)
-calico_mtu: 1370
-calico_veth_mtu: 1370
+---
 
-# WireGuard Mesh Interface Auto-Detection
-calico_ip_auto_method: "interface=wg.*"
+### Step-by-Step: The Journey of a Packet Across Clouds
 
-# Outbound NAT for internet access from pods
-nat_outgoing: true
-calico_pool_blocksize: 26
+Here is what happens when **Pod A on AWS Worker 1** talks to **Pod B on GCP Master 1**:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor PodA as Pod A on AWS (10.233.65.10)
+    participant HostAWS as AWS Worker 1 Kernel
+    participant Calico as Calico VXLAN Engine
+    participant WireGuardAWS as WireGuard (wg0: 10.0.0.4)
+    participant Internet as Public Internet
+    participant WireGuardGCP as WireGuard (wg0: 10.0.0.1)
+    participant CalicoGCP as GCP Calico Engine
+    actor PodB as Pod B on GCP (10.233.64.20)
+
+    PodA->>HostAWS: 1. Sends HTTP request to Pod B (10.233.64.20)
+    HostAWS->>Calico: 2. Host identifies destination is on GCP Master 1 (10.0.0.1)
+    Calico->>WireGuardAWS: 3. Packs request into VXLAN envelope (Dest: 10.0.0.1:4789, Size <= 1370)
+    WireGuardAWS->>Internet: 4. Encrypts with ChaCha20, sends to GCP Public IP (UDP port 51820)
+    Internet->>WireGuardGCP: 5. Arrives at GCP Firewall (Port 51820)
+    WireGuardGCP->>CalicoGCP: 6. WireGuard decrypts payload, exposing raw VXLAN packet on wg0
+    CalicoGCP->>PodB: 7. Strips VXLAN header and delivers original HTTP request to Pod B
 ```
 
 ---
 
-### 2.4 `k8s-net-cilium.yml` — Cilium eBPF CNI
-* **Purpose**: Configures Cilium, a high-performance CNI based on Linux eBPF. Replaces `iptables` and `kube-proxy` with in-kernel eBPF programs, providing L3/L4/L7 security policies, integrated Hubble network visibility, and native service load balancing.
-* **When to Modify**: When `kube_network_plugin: cilium` is enabled in `k8s-cluster.yml`.
+### File 3: [`addons.yml`](file:///home/seang/kubernete-aws-gcp/terraform/ansible_kubespray_k8s/kubespray/inventory/sample/group_vars/k8s_cluster/addons.yml) — "The Platform Toolbelt"
 
-#### Key Parameters
-* `cilium_kube_proxy_replacement`: Set to `"true"` to eliminate `kube-proxy` entirely.
-* `cilium_tunnel_mode`: Tunneling mode (`vxlan` or `geneve`).
-* `cilium_mtu`: Custom MTU clamped for underlying tunnels.
-* `cilium_enable_hubble`: Enables Hubble observability engine.
-* `cilium_hubble_ui`: Deploys Hubble graphical service map UI.
+Controls pre-packaged official Kubernetes applications:
 
-#### Example Configuration
+#### 1. Ingress NGINX (The Front Door Receptionist)
 ```yaml
-# Kube-Proxy Replacement with eBPF
-cilium_kube_proxy_replacement: "true"
-
-# Overlay Tunneling & MTU
-cilium_tunnel_mode: "vxlan"
-cilium_mtu: 1370
-
-# Observability (Hubble)
-cilium_enable_hubble: true
-cilium_hubble_ui: true
-cilium_hubble_metrics:
-  - dns
-  - drop
-  - tcp
-  - flow
-  - icmp
-  - http
+ingress_nginx_enabled: true
+ingress_nginx_service_type: NodePort
 ```
+* **Plain English**: Deploys the NGINX web server as the cluster's gateway.
+* **Analogy**: A hotel receptionist. When an outside user visits `https://app.example.com`, NGINX reads the domain name and guides the visitor to the right Pod inside the cluster.
+
+#### 2. Metrics Server (The Cluster Thermometer)
+```yaml
+metrics_server_enabled: true
+metrics_server_kubelet_insecure_tls: true
+```
+* **Plain English**: Measures CPU and Memory consumption across every node and container.
+* **Why you need it**: Without this, `kubectl top nodes` and `kubectl top pods` commands will fail, and Kubernetes cannot automatically scale up pods when traffic surges (HPA autoscaling).
+
+#### 3. Cert-Manager (The Automatic Locksmith)
+```yaml
+cert_manager_enabled: true
+cert_manager_namespace: "cert-manager"
+```
+* **Plain English**: Automatically requests, installs, and renews free SSL/TLS certificates from Let's Encrypt so your applications always have a secure green padlock (`https://`).
+
+#### 4. Helm (The Kubernetes App Store)
+```yaml
+helm_enabled: true
+```
+* **Plain English**: Installs the `helm` command-line tool on master nodes so you can deploy complex applications (like databases or monitoring systems) with a single command.
 
 ---
 
-### 2.5 `k8s-net-custom-cni.yml` — Custom / Helm CNI
-* **Purpose**: Used when `kube_network_plugin: cni`. Allows bringing your own CNI deployment via custom Kubernetes manifests or upstream Helm charts instead of Kubespray's bundled CNI roles.
-* **When to Modify**: When testing custom CNI plugins, unbundled CNIs (e.g., Antrea, Weave), or specific vendor enterprise releases.
+### File 4: [`kube_control_plane.yml`](file:///home/seang/kubernete-aws-gcp/terraform/ansible_kubespray_k8s/kubespray/inventory/sample/group_vars/k8s_cluster/kube_control_plane.yml) — "The Brain's Emergency Rations"
 
-#### Example Configuration (Helm Deployment)
+Controls resource protection on the 3 Google Cloud Master nodes:
+
 ```yaml
-custom_cni_chart_namespace: kube-system
-custom_cni_chart_release_name: cilium
-custom_cni_chart_repository_name: cilium
-custom_cni_chart_repository_url: https://helm.cilium.io
-custom_cni_chart_ref: cilium/cilium
-custom_cni_chart_version: "1.15.5"
-custom_cni_chart_values:
-  cluster:
-    name: "hybrid-k8s"
-  tunnel: "vxlan"
-```
-
----
-
-### 2.6 `k8s-net-flannel.yml` — Flannel Lightweight CNI
-* **Purpose**: Configures CoreOS Flannel, a minimalist overlay network plugin. It is simple to operate and uses VXLAN, `host-gw`, or WireGuard backend encapsulation.
-* **Limitations**: Flannel does **not** support Kubernetes `NetworkPolicy` objects (pod firewall isolation).
-
-#### Example Configuration
-```yaml
-flannel_interface_regexp: '10\.0\.0\.\d{1,3}'
-flannel_backend_type: "vxlan"
-flannel_vxlan_port: 8472
-flannel_vxlan_vni: 1
-```
-
----
-
-### 2.7 `k8s-net-kube-ovn.yml` — Kube-OVN Enterprise SDN CNI
-* **Purpose**: Bridges Open vSwitch (OVS) and Open Virtual Network (OVN) to Kubernetes. Delivers advanced data center network features including multi-tenancy, custom VPCs, fixed IP addresses, QoS traffic shaping, gateway high availability, and hardware acceleration.
-* **When to Modify**: Complex multi-tenant enterprise topologies requiring isolated virtual overlay routers inside Kubernetes.
-
-#### Example Configuration
-```yaml
-kube_ovn_network_type: geneve
-kube_ovn_tunnel_type: geneve
-kube_ovn_node_switch_cidr: 100.64.0.0/16
-kube_ovn_enable_lb: true
-kube_ovn_enable_np: true
-kube_ovn_enable_external_vpc: true
-```
-
----
-
-### 2.8 `k8s-net-kube-router.yml` — Kube-Router All-in-One CNI
-* **Purpose**: A lightweight, unified solution that combines:
-  1. Pod networking using Linux IP routing and standard BGP.
-  2. Ingress `NetworkPolicy` controller using `iptables`/`ipset`.
-  3. Service proxy (replacing `kube-proxy`) using high-performance IPVS.
-* **When to Modify**: Bare-metal and colocation environments peering with external top-of-rack (ToR) BGP switches.
-
-#### Example Configuration
-```yaml
-kube_router_run_router: true
-kube_router_run_firewall: true
-kube_router_run_service_proxy: true
-kube_router_cluster_asn: 64512
-```
-
----
-
-### 2.9 `k8s-net-macvlan.yml` — Macvlan L2 Direct CNI
-* **Purpose**: Attaches container pods directly to the host's physical L2 ethernet interface via Linux Macvlan sub-interfaces. Each pod receives an IP and MAC address directly on the underlying physical switch subnet, bypassing any overlay or NAT overhead.
-* **Cloud Note**: **Not compatible with AWS or GCP**. Public cloud hypervisors (AWS Nitro / GCP Andromeda) enforce strict source/destination IP and MAC checking and discard Macvlan traffic. Used almost exclusively on bare metal.
-
-#### Example Configuration
-```yaml
-macvlan_interface: "eth1"
-enable_nat_default_gateway: true
-```
-
----
-
-### 2.10 `kube_control_plane.yml` — Control Plane Resource Reservations
-* **Purpose**: Configures resource reservations (`systemReserved` and `kubeReserved`) specifically on Kubernetes Control Plane nodes. Guarantees that Linux kernel daemons (systemd, sshd, wireguard) and core Kubernetes components (kube-apiserver, etcd, kube-controller-manager) will never be starved of CPU, RAM, or PIDs by user pods.
-* **When to Modify**: Production clusters under high workload pressure to ensure master node resilience.
-
-#### Example Configuration
-```yaml
-# Reservation for Kubernetes daemons (kubelet, runtime)
+# Reserve memory and CPU for Kubernetes control plane daemons
 kube_memory_reserved: 512Mi
 kube_cpu_reserved: 200m
-kube_ephemeral_storage_reserved: 2Gi
-kube_pid_reserved: "1000"
 
-# Reservation for underlying Linux OS & WireGuard daemon
+# Reserve memory and CPU for the Linux Operating System
 system_memory_reserved: 512Mi
 system_cpu_reserved: 250m
-system_ephemeral_storage_reserved: 2Gi
-system_pid_reserved: "1000"
 ```
+* **Plain English**: "Always keep 512 Megabytes of RAM and 25% of a CPU core locked away and protected for the Linux operating system and Kubernetes control plane."
+* **Analogy**: Keeping a spare emergency tire and gas tank in your car.
+* **Why it matters**: If an application pod on a master node leaks memory and tries to consume 100% of the RAM, these reservations prevent the master node's operating system from freezing, keeping the cluster stable.
 
 ---
 
-## 3. Summary Reference Matrix
+## 💤 Chapter 5: The 6 Inactive Network Files (Why They Exist)
 
-| Configuration File | Scope | Status in this Cluster | Key Responsibilities |
-| :--- | :--- | :--- | :--- |
-| **`k8s-cluster.yml`** | Entire Cluster | **Active** | Core K8s version, CNI selector, Pod/Service CIDRs, container runtime. |
-| **`addons.yml`** | Entire Cluster | **Active** | Ingress NGINX, Cert-Manager, Metrics Server, Dashboard, Helm. |
-| **`k8s-net-calico.yml`** | Entire Cluster | **Active** | Calico VXLAN overlay, MTU 1370 clamping, WireGuard `wg0` autodetection. |
-| **`kube_control_plane.yml`** | Control Plane | Configurable | Memory/CPU/PID resource reservations for master nodes. |
-| **`k8s-net-cilium.yml`** | Entire Cluster | Dormant | eBPF-based alternative CNI (active only if `kube_network_plugin: cilium`). |
-| **`k8s-net-custom-cni.yml`** | Entire Cluster | Dormant | Custom manifest/Helm CNI (active only if `kube_network_plugin: cni`). |
-| **`k8s-net-flannel.yml`** | Entire Cluster | Dormant | Flannel CNI (active only if `kube_network_plugin: flannel`). |
-| **`k8s-net-kube-ovn.yml`** | Entire Cluster | Dormant | Kube-OVN CNI (active only if `kube_network_plugin: kube-ovn`). |
-| **`k8s-net-kube-router.yml`** | Entire Cluster | Dormant | Kube-router CNI (active only if `kube_network_plugin: kube-router`). |
-| **`k8s-net-macvlan.yml`** | Entire Cluster | Dormant | Macvlan CNI (active only if `kube_network_plugin: macvlan`). |
+The remaining 6 files in this folder are alternative network plugins. They remain **dormant** because `kube_network_plugin: calico` was selected in `k8s-cluster.yml`:
+
+1. **`k8s-net-cilium.yml`**: An advanced CNI that uses Linux **eBPF** programs to bypass iptables for extreme performance. Popular for massive clusters (thousands of nodes).
+2. **`k8s-net-flannel.yml`**: A very old, simple network overlay. Easy to run, but lacks **NetworkPolicies** (pod firewalls), making it unsuitable for multi-tenant production setups.
+3. **`k8s-net-kube-ovn.yml`**: An enterprise software-defined network based on Open vSwitch (OVS). Allows creating multiple virtual private clouds (VPCs) inside Kubernetes. Used mostly by telecom companies.
+4. **`k8s-net-kube-router.yml`**: A lightweight all-in-one router used mainly in physical on-premise data centers with physical BGP switches.
+5. **`k8s-net-macvlan.yml`**: Connects pods directly to physical office/home ethernet switches. **Cannot work on AWS or Google Cloud** because public cloud hypervisors block unapproved MAC addresses.
+6. **`k8s-net-custom-cni.yml`**: A template used only if you want to deploy an unbundled CNI using raw YAML manifests or a custom Helm chart.
 
 ---
 
-## 4. End-to-End Deployment Flow
+## 🚀 Chapter 6: How Deployment Executes (The 3-Step Flow)
 
-In our hybrid infrastructure, the deployment flow follows three automated steps:
+Our deployment script [`apply-dev-and-run-ansible.sh`](file:///home/seang/kubernete-aws-gcp/terraform/k8s_infrastructure/scripts/apply-dev-and-run-ansible.sh) orchestrates the entire process in three logical steps:
 
 ```
-┌────────────────────────────────────────────────────────┐
-│ 1. Terraform (Cloud VMs + Security Groups + Firewalls) │
-│    - GCP 3 Masters (34.x.x.x public / 10.10.x.x VPC)   │
-│    - AWS 4 Workers (54.x.x.x public / 10.20.x.x VPC)   │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│ 2. WireGuard Full Mesh Playbook (terraform/wiregurad)  │
-│    - Installs WireGuard, enables IP forwarding         │
-│    - Establishes full-mesh wg0 (10.0.0.1 - 10.0.0.7)   │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│ 3. Kubespray Cluster Playbook (ansible_kubespray_k8s)   │
-│    - Connects via ansible_host (public IP)             │
-│    - Binds daemons to ip & access_ip (10.0.0.x on wg0) │
-│    - Calico auto-detects wg0 with MTU 1370             │
-└────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│ Step 1: Terraform Apply                                                │
+│ Creates 3 GCP Master VMs + 4 AWS Worker VMs                            │
+│ Opens Security Groups / Firewalls (Port 51820/UDP for WireGuard)       │
+│ Auto-generates inventory.ini and wireguard hosts.ini                   │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ Step 2: WireGuard Full Mesh (terraform/wiregurad/run-wireguard.sh)     │
+│ Installs WireGuard on all 7 machines                                   │
+│ Connects all machines over encrypted 10.0.0.1 - 10.0.0.7 highway (wg0) │
+│ Verifies handshakes and mutual pings across clouds                     │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ Step 3: Kubespray Installation (cluster.yml)                           │
+│ Connects via public IPs (ansible_host)                                 │
+│ Binds Kubernetes components to WireGuard IPs (10.0.0.x on wg0)         │
+│ Calico activates, auto-detects wg0, clamps MTU to 1370                 │
+│ Installs Ingress NGINX, Metrics Server, and Cert-Manager               │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Manual Command Reference
+If you ever want to run the steps manually:
+
+```bash
+# 1. Build VMs and generate inventories
+cd /home/seang/kubernete-aws-gcp/terraform/k8s_infrastructure/live/dev/asia-southeast1/kubespray-k8s
+terraform apply
+
+# 2. Deploy and test the WireGuard tunnel
+cd /home/seang/kubernete-aws-gcp/terraform/wiregurad
+./run-wireguard.sh deploy
+./run-wireguard.sh verify
+
+# 3. Install Kubernetes with Kubespray
+cd /home/seang/kubernete-aws-gcp/terraform/ansible_kubespray_k8s/kubespray
+ansible-playbook -i inventory/sample/inventory.ini cluster.yml
 ```
