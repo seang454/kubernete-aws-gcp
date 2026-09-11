@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# Secrets & Environment Files
+# ---------------------------------------------------------------------------
+.env
+.env.*
+*.env
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
+# ---------------------------------------------------------------------------
+# Terraform
+# ---------------------------------------------------------------------------
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+.terraform.tfstate.lock.info
+
+# Ignore secret tfvars if created (keep *.example files)
+*.secret.tfvars
+secret*.tfvars
+secrets*.tfvars
+*.auto.tfvars
+
+# ---------------------------------------------------------------------------
+# Ansible & Kubespray
+# ---------------------------------------------------------------------------
+terraform/ansible_kubespray_k8s/kubespray/inventory/sample/credentials/*
+!terraform/ansible_kubespray_k8s/kubespray/inventory/sample/credentials/.gitkeep
+*.retry
+*.log
+.ansible/
+kubespray-venv/
+
+# ---------------------------------------------------------------------------
+# OS & Editor files
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+__pycache__/
+*.py[cod]
+.venv/
+venv/

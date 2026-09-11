@@ -1,0 +1,24 @@
+# =============================================================================
+# WireGuard Full-Mesh Configuration for {{ inventory_hostname }}
+# Cloud Provider: {{ cloud | default('hybrid') | upper }}
+# WireGuard Address: {{ wireguard_ip }}/{{ wireguard_mask | default(24) }}
+# =============================================================================
+
+[Interface]
+Address = {{ wireguard_ip }}/{{ wireguard_mask | default(24) }}
+ListenPort = {{ wireguard_port | default(51820) }}
+PrivateKey = {{ wireguard_private_key }}
+
+{% for peer in groups['wireguard'] %}
+{% if peer != inventory_hostname and hostvars[peer]['wireguard_public_key'] is defined %}
+# -----------------------------------------------------------------------------
+# Peer: {{ peer }} [{{ hostvars[peer]['cloud'] | default('hybrid') | upper }}] - WireGuard IP: {{ hostvars[peer]['wireguard_ip'] }}
+# -----------------------------------------------------------------------------
+[Peer]
+PublicKey = {{ hostvars[peer]['wireguard_public_key'] }}
+Endpoint = {{ hostvars[peer]['wireguard_endpoint'] | default(hostvars[peer]['ansible_host']) }}:{{ hostvars[peer]['wireguard_port'] | default(51820) }}
+AllowedIPs = {{ hostvars[peer]['wireguard_ip'] }}/32
+PersistentKeepalive = {{ wireguard_persistent_keepalive | default(25) }}
+
+{% endif %}
+{% endfor %}

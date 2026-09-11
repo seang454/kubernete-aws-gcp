@@ -1,0 +1,10 @@
+---
+wireguard_packages:
+  - wireguard
+  - wireguard-tools
+  - iptables
+  - resolvconf
+  - iproute2
+  - net-tools
+  - curl
+wireguard_conf_dir: /etc/wireguard

@@ -1,95 +1,49 @@
+# GCP Configuration
 project_id = "YOUR_GCP_PROJECT_ID"
-region     = "asia-southeast1"
-zone       = "asia-southeast1-a"
+region     = "asia-east1"
+zone       = "asia-east1-a"
 
-# Kubespray cluster size.
-# For stacked etcd HA, 1 or 3 control plane nodes is usually better than 2.
+# Kubespray cluster size: 3 Control-plane on GCP, 4 Workers on AWS
 control_plane_count = 3
-worker_count        = 3
+gcp_worker_count    = 0
+aws_worker_count    = 4
+
+# AWS Configuration
+aws_region                   = "ap-southeast-1"
+aws_profile                  = ""
+aws_worker_instance_types    = ["t3.medium"]
+aws_worker_root_disk_size_gb = 30
+aws_worker_root_disk_type    = "gp3"
+aws_allocate_elastic_ips     = true
+aws_vpc_cidr                 = "172.31.0.0/16"
+aws_source_dest_check        = false
 
 cluster_name         = "kubespray"
 instance_name_prefix = "k8s"
 
-# Kubespray inventory names become master01, master02, worker01, worker02, ...
 control_plane_name_prefix = "master"
 worker_name_prefix        = "worker"
 
-zones = [
-  "asia-southeast1-a",
-  "asia-southeast1-b",
-  "asia-southeast1-c"
-]
+# Use WireGuard full-mesh overlay IPs (10.0.0.1 - 10.0.0.x) for Kubespray cluster traffic
+use_wireguard_ip     = true
 
-auto_discover_up_zones = true
+# Cross-cloud network mode: fallback when use_wireguard_ip is false
+use_public_access_ip = true
 
-fallback_regions = [
-  "asia-east1",
-  "asia-northeast1"
-]
-
-blocked_zones   = []
-blocked_regions = []
-
-# Option 1: leave empty and run:
-# gcloud auth application-default login
-gcp_adc_file = ""
-
-# Option 2: explicitly point Terraform to an ADC JSON file.
-# Linux/WSL: "~" dynamically means the current user's home directory.
-# gcp_adc_file = "~/.config/gcloud/application_default_credentials.json"
-
-control_plane_machine_types = [
-  "e2-standard-2"
-]
-
-worker_machine_types = [
-  "e2-standard-2"
-]
-
-# Desired VM power state: "RUNNING" to keep VMs powered on, "TERMINATED" to stop VMs.
+# Desired VM power state: "RUNNING" or "TERMINATED"
 desired_status = "RUNNING"
 
-image                           = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
-control_plane_boot_disk_size_gb = 50
-worker_boot_disk_size_gb        = 50
-boot_disk_type                  = "pd-balanced"
+# Permanently delete/destroy specific instances:
+exclude_nodes = []
 
-network    = "default"
-subnetwork = null
+# Temporarily power off specific instances (without deleting VM, disks, or IP):
+stop_nodes = []
 
-ssh_user            = "seang"
+# Exclude stopped nodes from inventory so Kubespray doesn't time out:
+exclude_stopped_nodes_from_inventory = true
 ssh_public_key_path = "~/.ssh/id_rsa.pub"
 
-# Leave empty to reuse ssh_user above.
 ansible_user                 = ""
 ansible_ssh_private_key_file = "~/.ssh/id_rsa"
 ansible_python_interpreter   = "/usr/bin/python3"
 ansible_ssh_extra_args       = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-
-kubespray_inventory_path = "../../../../../ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini"
-
-# Terraform also writes the VM IPs into the ansible_kubespray_k8s main inventory
-# after apply, so Ansible playbooks always have fresh node IPs without manual editing.
-ansible_inventory_path = "../../../../../ansible_kubespray_k8s/inventory.ini"
-
-ssh_source_ranges            = ["0.0.0.0/0"]
-kubernetes_api_source_ranges = ["0.0.0.0/0"]
-internal_source_ranges       = ["10.0.0.0/8"]
-nodeport_source_ranges       = []
-
-# Network tags applied to every VM instance (enables default-allow-http and default-allow-https)
-network_tags = ["http-server", "https-server"]
-
-# ---------------------------------------------------------------------------
-# Custom firewall rules
-# ---------------------------------------------------------------------------
-custom_firewall_rules = [
-  {
-    name          = "allow-http-https"
-    protocol      = "tcp"
-    ports         = ["80", "443"]
-    source_ranges = ["0.0.0.0/0"]
-    target        = "all"
-  }
-]
-

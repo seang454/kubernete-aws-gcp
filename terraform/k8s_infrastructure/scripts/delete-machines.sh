@@ -21,10 +21,10 @@ Usage:
 
 Examples:
   $(basename "$0") --list
-  $(basename "$0") --plan k8s-haproxy-1 k8s-haproxy-2
-  $(basename "$0") k8s-haproxy-1 k8s-haproxy-2 k8s-worker01 k8s-master02
+  $(basename "$0") --plan k8s-worker03 k8s-worker04
+  $(basename "$0") k8s-worker04 k8s-master02
 
-Instance names use the full GCP name with prefix: k8s-master01, k8s-worker01, k8s-haproxy-1, etc.
+Instance names use the full name with prefix: k8s-master01 (GCP), k8s-worker01 (AWS), etc.
 EOF
   exit 1
 }
@@ -49,17 +49,18 @@ terraform -chdir="$INFRA_DIR" init -input=false > /dev/null 2>&1
 
 # --- List mode -------------------------------------------------------------
 if $LIST_ONLY; then
-  echo -e "${CYAN}All GCP instance names defined in Terraform:${NC}"
+  echo -e "${CYAN}All instance names (GCP & AWS) defined in Terraform:${NC}"
   echo
   terraform -chdir="$INFRA_DIR" output -json machine_plan 2>/dev/null \
     | python3 -c "
 import json, sys
 nodes = json.load(sys.stdin)
 for n in nodes:
-    print(f\"  {n['role']:<14s}  {n['instance_name']}\")
+    cloud = n.get('cloud', 'gcp').upper()
+    print(f\"  {n['role']:<14s}  {n['instance_name']:<20s}  [{cloud}]\")
 " 2>/dev/null || echo "  (run 'terraform apply' first to see instance names)"
   echo
-  echo -e "Currently excluded:"
+  echo -e "${RED}Currently excluded (permanently deleted):${NC}"
   terraform -chdir="$INFRA_DIR" output -json excluded_nodes 2>/dev/null \
     | python3 -c "
 import json, sys
@@ -70,6 +71,18 @@ if excluded:
 else:
     print('  (none)')
 " 2>/dev/null || echo "  (not available)"
+  echo
+  echo -e "${YELLOW}Currently stopped (powered off without deletion):${NC}"
+  terraform -chdir="$INFRA_DIR" output -json stopped_nodes 2>/dev/null \
+    | python3 -c "
+import json, sys
+stopped = json.load(sys.stdin)
+if stopped:
+    for n in stopped:
+        print(f'  - {n}')
+else:
+    print('  (none)')
+" 2>/dev/null || echo "  (none)"
   exit 0
 fi
 

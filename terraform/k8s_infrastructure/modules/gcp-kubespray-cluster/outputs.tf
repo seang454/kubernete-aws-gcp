@@ -51,8 +51,14 @@ output "all_nodes" {
       machine_type  = node.machine_type
       public_ip     = one(google_compute_instance.this[node.name].network_interface[0].access_config[*].nat_ip)
       private_ip    = google_compute_instance.this[node.name].network_interface[0].network_ip
+      cloud         = "gcp"
     }
   }
+}
+
+output "cluster_public_ips" {
+  description = "All GCP cluster node external IP addresses (control plane, worker, nfs)."
+  value       = [for node in local.active_nodes : one(google_compute_instance.this[node.name].network_interface[0].access_config[*].nat_ip)]
 }
 
 output "control_plane_public_ips" {
@@ -78,6 +84,11 @@ output "worker_private_ips" {
 output "excluded_nodes" {
   description = "Node names currently excluded (deleted) from the cluster."
   value       = var.exclude_nodes
+}
+
+output "stopped_nodes" {
+  description = "Node names currently stopped (powered off) without deletion."
+  value       = var.stop_nodes
 }
 
 output "usable_zones" {

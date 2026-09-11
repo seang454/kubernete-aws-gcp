@@ -1,0 +1,63 @@
+---
+# =============================================================================
+# Full-Mesh WireGuard Deployment Playbook
+# Sets up encrypted WireGuard full mesh across 7 nodes (GCP + AWS)
+# =============================================================================
+
+- name: Phase 0 - Pre-flight Verification
+  hosts: wireguard
+  gather_facts: false
+  tasks:
+    - name: Verify required variables are defined
+      ansible.builtin.assert:
+        that:
+          - wireguard_ip is defined
+          - wireguard_endpoint is defined
+        fail_msg: "Host {{ inventory_hostname }} is missing wireguard_ip or wireguard_endpoint in inventory."
+
+- name: Phase 1 - Common Setup & Key Generation
+  hosts: wireguard
+  gather_facts: false
+  roles:
+    - role: common
+
+- name: Phase 2 - Deploy WireGuard Full Mesh Configuration & Start Service
+  hosts: wireguard
+  gather_facts: false
+  roles:
+    - role: wireguard
+
+- name: Phase 3 - Connectivity Verification & Handshake Validation
+  hosts: wireguard
+  gather_facts: false
+  tasks:
+    - name: Wait for WireGuard handshakes to establish
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: Ping all peer WireGuard IPs from each machine
+      ansible.builtin.command:
+        cmd: "ping -c 3 -W 3 {{ hostvars[item]['wireguard_ip'] }}"
+      loop: "{{ groups['wireguard'] }}"
+      when: item != inventory_hostname
+      register: ping_results
+      failed_when: false
+      changed_when: false
+
+    - name: Display peer ping reachability
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} ({{ wireguard_ip }}) -> {{ item.item }} ({{ hostvars[item.item]['wireguard_ip'] }}):
+          {{ 'REACHABLE ✅' if item.rc == 0 else 'UNREACHABLE ❌ (rc=' ~ item.rc ~ ')' }}
+      loop: "{{ ping_results.results }}"
+      when: item.skipped is not defined and item.item != inventory_hostname
+
+    - name: Display latest WireGuard handshakes and transfer stats
+      ansible.builtin.command:
+        cmd: wg show
+      register: final_wg_show
+      changed_when: false
+
+    - name: Show wg show output
+      ansible.builtin.debug:
+        msg: "{{ final_wg_show.stdout_lines }}"

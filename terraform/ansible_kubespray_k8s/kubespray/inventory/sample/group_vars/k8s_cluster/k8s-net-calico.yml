@@ -38,14 +38,15 @@ calico_pool_blocksize: 26
 # You can set MTU value here. If left undefined or empty, it will
 # not be specified in calico CNI config, so Calico will use built-in
 # defaults. The value should be a number, not a string.
-# calico_mtu: 1500
+# When WireGuard full-mesh is used, MTU = 1420 (wg0) - 50 (vxlan) = 1370
+calico_mtu: 1370
 
 # Configure the MTU to use for workload interfaces and tunnels.
 # - If Wireguard is enabled, subtract 60 from your network MTU (i.e 1500-60=1440)
 # - Otherwise, if VXLAN or BPF mode is enabled, subtract 50 from your network MTU (i.e. 1500-50=1450)
 # - Otherwise, if IPIP is enabled, subtract 20 from your network MTU (i.e. 1500-20=1480)
 # - Otherwise, if not using any encapsulation, set to your network MTU (i.e. 1500)
-# calico_veth_mtu: 1440
+calico_veth_mtu: 1370
 
 # Advertise Cluster IPs
 # calico_advertise_cluster_ips: true
@@ -101,8 +102,8 @@ calico_pool_blocksize: 26
 # * can-reach=DESTINATION
 # * interface=INTERFACE-REGEX
 # see https://docs.projectcalico.org/reference/node/configuration
-# calico_ip_auto_method: "interface=eth.*"
-# calico_ip6_auto_method: "interface=eth.*"
+# Set IP autodetection to WireGuard interface wg0 (10.0.0.x mesh network across GCP and AWS)
+calico_ip_auto_method: "interface=wg.*"
 
 # Set FELIX_MTUIFACEPATTERN, Pattern used to discover the host’s interface for MTU auto-detection.
 # see https://projectcalico.docs.tigera.io/reference/felix/configuration

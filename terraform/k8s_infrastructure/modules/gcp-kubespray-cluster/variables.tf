@@ -45,7 +45,7 @@ variable "worker_count" {
 variable "nfs_count" {
   description = "Number of NFS/Ceph storage nodes to create."
   type        = number
-  default     = 3
+  default     = 0
 
   validation {
     condition     = var.nfs_count >= 0 && floor(var.nfs_count) == var.nfs_count
@@ -283,6 +283,15 @@ variable "labels" {
 # ---------------------------------------------------------------------------
 variable "exclude_nodes" {
   description = "List of GCP instance names to exclude (delete) from the cluster. Names must match the full instance name with prefix (e.g. k8s-master01, k8s-worker02, k8s-haproxy-1). Excluded nodes and their resources (VM, static IP, data disks) are destroyed while remaining nodes stay untouched."
+  type        = list(string)
+  default     = []
+}
+
+# ---------------------------------------------------------------------------
+# Selective node stopping (power off without deletion)
+# ---------------------------------------------------------------------------
+variable "stop_nodes" {
+  description = "List of GCP instance names to stop (power off) without deleting (e.g. ['k8s-master02', 'k8s-worker01']). Remaining active nodes continue running. When removed from stop_nodes, VMs power back on."
   type        = list(string)
   default     = []
 }

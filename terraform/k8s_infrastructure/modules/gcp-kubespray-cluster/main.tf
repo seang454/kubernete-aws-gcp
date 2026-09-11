@@ -55,35 +55,35 @@ locals {
 
   control_plane_nodes = [
     for index in range(var.control_plane_count) : {
-      name              = format("%s%02d", var.control_plane_name_prefix, index + 1)
-      instance_name     = format("%s-%s%02d", var.instance_name_prefix, var.control_plane_name_prefix, index + 1)
-      role              = "control_plane"
-      node_index        = index
-      global_index      = index
-      zone              = local.effective_zones[index % length(local.effective_zones)]
-      region            = replace(local.effective_zones[index % length(local.effective_zones)], "/-[a-z]$/", "")
-      machine_type      = contains(var.blocked_machine_types, var.control_plane_machine_types[min(index, length(var.control_plane_machine_types) - 1)]) ? (
+      name          = format("%s%02d", var.control_plane_name_prefix, index + 1)
+      instance_name = format("%s-%s%02d", var.instance_name_prefix, var.control_plane_name_prefix, index + 1)
+      role          = "control_plane"
+      node_index    = index
+      global_index  = index
+      zone          = local.effective_zones[index % length(local.effective_zones)]
+      region        = replace(local.effective_zones[index % length(local.effective_zones)], "/-[a-z]$/", "")
+      machine_type = contains(var.blocked_machine_types, var.control_plane_machine_types[min(index, length(var.control_plane_machine_types) - 1)]) ? (
         length(local.usable_fallback_machines) > 0 ? local.usable_fallback_machines[index % length(local.usable_fallback_machines)] : local.default_fallback_machine
       ) : var.control_plane_machine_types[min(index, length(var.control_plane_machine_types) - 1)]
-      boot_disk_size_gb = var.control_plane_boot_disk_size_gb
-      has_secondary_disk= false
+      boot_disk_size_gb  = var.control_plane_boot_disk_size_gb
+      has_secondary_disk = false
     }
   ]
 
   worker_nodes = [
     for index in range(var.worker_count) : {
-      name              = format("%s%02d", var.worker_name_prefix, index + 1)
-      instance_name     = format("%s-%s%02d", var.instance_name_prefix, var.worker_name_prefix, index + 1)
-      role              = "worker"
-      node_index        = index
-      global_index      = var.control_plane_count + index
-      zone              = local.effective_zones[(var.control_plane_count + index) % length(local.effective_zones)]
-      region            = replace(local.effective_zones[(var.control_plane_count + index) % length(local.effective_zones)], "/-[a-z]$/", "")
-      machine_type      = contains(var.blocked_machine_types, var.worker_machine_types[min(index, length(var.worker_machine_types) - 1)]) ? (
+      name          = format("%s%02d", var.worker_name_prefix, index + 1)
+      instance_name = format("%s-%s%02d", var.instance_name_prefix, var.worker_name_prefix, index + 1)
+      role          = "worker"
+      node_index    = index
+      global_index  = var.control_plane_count + index
+      zone          = local.effective_zones[(var.control_plane_count + index) % length(local.effective_zones)]
+      region        = replace(local.effective_zones[(var.control_plane_count + index) % length(local.effective_zones)], "/-[a-z]$/", "")
+      machine_type = contains(var.blocked_machine_types, var.worker_machine_types[min(index, length(var.worker_machine_types) - 1)]) ? (
         length(local.usable_fallback_machines) > 0 ? local.usable_fallback_machines[(var.control_plane_count + index) % length(local.usable_fallback_machines)] : local.default_fallback_machine
       ) : var.worker_machine_types[min(index, length(var.worker_machine_types) - 1)]
-      boot_disk_size_gb = var.worker_boot_disk_size_gb
-      has_secondary_disk= false
+      boot_disk_size_gb  = var.worker_boot_disk_size_gb
+      has_secondary_disk = false
     }
   ]
 
@@ -91,24 +91,24 @@ locals {
 
   nfs_nodes = [
     for index in range(var.nfs_count) : {
-      name              = format("%s-%d", var.nfs_name_prefix, index + 1)
-      instance_name     = format("%s-%s-%d", var.instance_name_prefix, var.nfs_name_prefix, index + 1)
-      role              = "nfs"
-      node_index        = index
-      global_index      = var.control_plane_count + var.worker_count + index
-      zone              = local.nfs_effective_zones[index % length(local.nfs_effective_zones)]
-      region            = replace(local.nfs_effective_zones[index % length(local.nfs_effective_zones)], "/-[a-z]$/", "")
-      machine_type      = contains(var.blocked_machine_types, var.nfs_machine_types[min(index, length(var.nfs_machine_types) - 1)]) ? (
+      name          = format("%s-%d", var.nfs_name_prefix, index + 1)
+      instance_name = format("%s-%s-%d", var.instance_name_prefix, var.nfs_name_prefix, index + 1)
+      role          = "nfs"
+      node_index    = index
+      global_index  = var.control_plane_count + var.worker_count + index
+      zone          = local.nfs_effective_zones[index % length(local.nfs_effective_zones)]
+      region        = replace(local.nfs_effective_zones[index % length(local.nfs_effective_zones)], "/-[a-z]$/", "")
+      machine_type = contains(var.blocked_machine_types, var.nfs_machine_types[min(index, length(var.nfs_machine_types) - 1)]) ? (
         length(local.usable_fallback_machines) > 0 ? local.usable_fallback_machines[(var.control_plane_count + var.worker_count + index) % length(local.usable_fallback_machines)] : local.default_fallback_machine
       ) : var.nfs_machine_types[min(index, length(var.nfs_machine_types) - 1)]
-      boot_disk_size_gb = var.nfs_boot_disk_size_gb
-      has_secondary_disk= true
+      boot_disk_size_gb  = var.nfs_boot_disk_size_gb
+      has_secondary_disk = true
     }
   ]
 
-  nodes         = concat(local.control_plane_nodes, local.worker_nodes, local.nfs_nodes)
-  nodes_by_name = { for node in local.nodes : node.name => node }
-  nfs_nodes_by_name = { for node in local.nfs_nodes : node.name => node }
+  nodes                       = concat(local.control_plane_nodes, local.worker_nodes, local.nfs_nodes)
+  nodes_by_name               = { for node in local.nodes : node.name => node }
+  nfs_nodes_by_name           = { for node in local.nfs_nodes : node.name => node }
   control_plane_nodes_by_name = { for node in local.control_plane_nodes : node.name => node }
 
   ssh_public_key = trimspace(var.ssh_public_key) != "" ? trimspace(var.ssh_public_key) : trimspace(file(pathexpand(var.ssh_public_key_path)))
@@ -178,6 +178,16 @@ resource "terraform_data" "preflight" {
       condition     = alltrue([for name in var.exclude_nodes : contains([for n in local.nodes : n.instance_name], name)])
       error_message = "exclude_nodes contains invalid instance name(s). Valid names are: ${join(", ", [for n in local.nodes : n.instance_name])}"
     }
+
+    precondition {
+      condition     = alltrue([for name in var.stop_nodes : contains([for n in local.nodes : n.instance_name], name)])
+      error_message = "stop_nodes contains invalid instance name(s). Valid names are: ${join(", ", [for n in local.nodes : n.instance_name])}"
+    }
+
+    precondition {
+      condition     = length(setintersection(toset(var.exclude_nodes), toset(var.stop_nodes))) == 0
+      error_message = "A node cannot be in both exclude_nodes (delete) and stop_nodes (stop): ${join(", ", setintersection(toset(var.exclude_nodes), toset(var.stop_nodes)))}"
+    }
   }
 }
 
@@ -213,7 +223,7 @@ resource "google_compute_instance" "this" {
 
   name                      = each.value.instance_name
   machine_type              = each.value.machine_type
-  desired_status            = var.desired_status
+  desired_status            = contains(var.stop_nodes, each.value.instance_name) ? "TERMINATED" : var.desired_status
   allow_stopping_for_update = true
   zone                      = each.value.zone
 
@@ -310,6 +320,20 @@ resource "google_compute_firewall" "nodeport" {
   }
 
   source_ranges = var.nodeport_source_ranges
+  target_tags   = [local.cluster_tag]
+}
+
+# Ingress WireGuard VPN (51820/udp)
+resource "google_compute_firewall" "wireguard" {
+  name    = "${var.instance_name_prefix}-allow-wireguard"
+  network = var.network
+
+  allow {
+    protocol = "udp"
+    ports    = ["51820"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
   target_tags   = [local.cluster_tag]
 }
 

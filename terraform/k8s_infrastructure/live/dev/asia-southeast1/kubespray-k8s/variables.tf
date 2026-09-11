@@ -16,6 +16,9 @@ variable "local_state_path" {
   default     = "../../../../state/dev/asia-southeast1/kubespray-k8s.tfstate"
 }
 
+# ---------------------------------------------------------------------------
+# GCP Settings
+# ---------------------------------------------------------------------------
 variable "project_id" {
   description = "GCP project ID."
   type        = string
@@ -34,78 +37,6 @@ variable "region" {
   default     = "asia-southeast1"
 }
 
-variable "cluster_name" {
-  description = "Short cluster name used in labels and firewall names."
-  type        = string
-  default     = "kubespray"
-}
-
-variable "instance_name_prefix" {
-  description = "Prefix used for GCP VM instance names."
-  type        = string
-  default     = "k8s"
-}
-
-variable "control_plane_count" {
-  description = "Number of Kubernetes control plane nodes."
-  type        = number
-  default     = 3
-}
-
-variable "worker_count" {
-  description = "Number of Kubernetes worker nodes."
-  type        = number
-  default     = 2
-}
-
-variable "nfs_count" {
-  description = "Number of NFS storage nodes."
-  type        = number
-  default     = 3
-}
-
-variable "control_plane_name_prefix" {
-  description = "Kubespray inventory hostname prefix for control plane nodes."
-  type        = string
-  default     = "master"
-}
-
-variable "worker_name_prefix" {
-  description = "Kubespray inventory hostname prefix for worker nodes."
-  type        = string
-  default     = "worker"
-}
-
-variable "nfs_name_prefix" {
-  description = "Inventory hostname prefix for NFS storage nodes."
-  type        = string
-  default     = "haproxy"
-}
-
-variable "nfs_machine_types" {
-  description = "Machine types for NFS storage nodes."
-  type        = list(string)
-  default     = ["e2-standard-2"]
-}
-
-variable "nfs_boot_disk_size_gb" {
-  description = "NFS node boot disk size in GB."
-  type        = number
-  default     = 50
-}
-
-variable "nfs_data_disk_size_gb" {
-  description = "NFS node data disk size in GB for Ceph OSD."
-  type        = number
-  default     = 50
-}
-
-variable "nfs_inventory_path" {
-  description = "Relative path where the generated NFS cluster inventory file is written."
-  type        = string
-  default     = "../../../../../ansible-nfs-cluster-genesha/inventory/hosts.ini"
-}
-
 variable "zone" {
   description = "Fallback GCP zone used when zones is empty."
   type        = string
@@ -114,12 +45,6 @@ variable "zone" {
 
 variable "zones" {
   description = "List of GCP zones used to spread Kubernetes nodes. If empty, Terraform uses zone."
-  type        = list(string)
-  default     = []
-}
-
-variable "nfs_zones" {
-  description = "Optional explicit GCP zones for NFS storage nodes to pin persistent data disks to their existing zones."
   type        = list(string)
   default     = []
 }
@@ -155,15 +80,15 @@ variable "blocked_machine_types" {
 }
 
 variable "control_plane_machine_types" {
-  description = "Machine types for control plane nodes by index. If there are more nodes than values, Terraform reuses the last value."
+  description = "Machine types for GCP control plane nodes by index. If there are more nodes than values, Terraform reuses the last value."
   type        = list(string)
-  default     = ["e2-standard-2"]
+  default     = ["e2-medium"]
 }
 
 variable "worker_machine_types" {
-  description = "Machine types for worker nodes by index. If there are more nodes than values, Terraform reuses the last value."
+  description = "Machine types for GCP worker nodes (if any) by index. If there are more nodes than values, Terraform reuses the last value."
   type        = list(string)
-  default     = ["e2-standard-2"]
+  default     = ["e2-medium"]
 }
 
 variable "fallback_machine_types" {
@@ -178,19 +103,8 @@ variable "random_resource_type" {
   default     = ["Standard", "High CPU", "High Memory"]
 }
 
-variable "desired_status" {
-  description = "Desired VM power state. RUNNING keeps Terraform-managed VMs up; TERMINATED stops them."
-  type        = string
-  default     = "RUNNING"
-
-  validation {
-    condition     = contains(["RUNNING", "TERMINATED"], var.desired_status)
-    error_message = "desired_status must be RUNNING or TERMINATED."
-  }
-}
-
 variable "image" {
-  description = "Boot disk image."
+  description = "Boot disk image for GCP instances."
   type        = string
   default     = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
 }
@@ -198,17 +112,17 @@ variable "image" {
 variable "control_plane_boot_disk_size_gb" {
   description = "Control plane boot disk size in GB."
   type        = number
-  default     = 50
+  default     = 20
 }
 
 variable "worker_boot_disk_size_gb" {
-  description = "Worker boot disk size in GB."
+  description = "GCP worker boot disk size in GB (if GCP workers deployed)."
   type        = number
-  default     = 50
+  default     = 20
 }
 
 variable "boot_disk_type" {
-  description = "Boot disk type."
+  description = "Boot disk type for GCP instances."
   type        = string
   default     = "pd-balanced"
 }
@@ -225,16 +139,232 @@ variable "subnetwork" {
   default     = null
 }
 
-variable "ssh_user" {
-  description = "Linux SSH username configured on the GCP VMs."
-  type        = string
-  default     = "seang"
+variable "network_tags" {
+  description = "Additional GCP network tags to apply to every Kubernetes VM (e.g. http-server, https-server)."
+  type        = list(string)
+  default     = ["http-server", "https-server"]
 }
 
-variable "ssh_public_key_path" {
-  description = "Path to the SSH public key Terraform adds to each VM. If this file and ansible_ssh_private_key_file do not exist, Terraform generates them. A leading ~ uses the current Terraform user's home directory."
+variable "custom_firewall_rules" {
+  description = "List of custom firewall rules to add to the cluster."
+  type = list(object({
+    name          = string
+    protocol      = string
+    ports         = list(string)
+    source_ranges = list(string)
+    target        = optional(string, "all")
+  }))
+  default = []
+}
+
+# ---------------------------------------------------------------------------
+# AWS Settings
+# ---------------------------------------------------------------------------
+variable "aws_region" {
+  description = "AWS region for worker nodes."
   type        = string
-  default     = "~/.ssh/id_rsa.pub"
+  default     = "ap-southeast-1"
+}
+
+variable "aws_profile" {
+  description = "Optional AWS CLI profile to use for authentication."
+  type        = string
+  default     = ""
+}
+
+variable "aws_access_key" {
+  description = "Optional explicit AWS access key ID. If empty, uses AWS environment variables or profile."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_secret_key" {
+  description = "Optional explicit AWS secret access key. If empty, uses AWS environment variables or profile."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_session_token" {
+  description = "Optional explicit AWS session token. If empty, uses AWS environment variables or profile."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_vpc_id" {
+  description = "Optional AWS VPC ID. If null, uses the default VPC."
+  type        = string
+  default     = null
+}
+
+variable "aws_subnet_ids" {
+  description = "Optional AWS subnet IDs. If empty, uses default VPC subnets."
+  type        = list(string)
+  default     = []
+}
+
+variable "aws_availability_zones" {
+  description = "Optional availability zones in AWS to spread worker nodes across (e.g. ['ap-southeast-1a', 'ap-southeast-1b']). If empty, auto-discovers."
+  type        = list(string)
+  default     = []
+}
+
+variable "aws_auto_discover_up_zones" {
+  description = "When true, asks AWS EC2 API for availability zones with state = 'available' before building the node plan."
+  type        = bool
+  default     = true
+}
+
+variable "aws_blocked_availability_zones" {
+  description = "Optional AWS availability zones to skip/block if an AZ has capacity or availability issues."
+  type        = list(string)
+  default     = []
+}
+
+variable "aws_worker_machine_types" {
+  description = "Primary AWS EC2 machine types for worker nodes."
+  type        = list(string)
+  default     = ["t3.medium"]
+}
+
+variable "aws_worker_instance_types" {
+  description = "Legacy alias for aws_worker_machine_types."
+  type        = list(string)
+  default     = ["t3.medium"]
+}
+
+variable "aws_fallback_machine_types" {
+  description = "Fallback AWS EC2 instance types to try if primary machine type is in aws_blocked_machine_types."
+  type        = list(string)
+  default     = ["t3a.medium", "t2.medium", "m5.large"]
+}
+
+variable "aws_blocked_machine_types" {
+  description = "List of AWS EC2 instance types to skip/block if AWS returns InsufficientInstanceCapacity."
+  type        = list(string)
+  default     = []
+}
+
+variable "aws_random_resource_type" {
+  description = "Allowed AWS resource families (Standard, High CPU, High Memory) when selecting fallback machine types."
+  type        = list(string)
+  default     = ["Standard", "High CPU", "High Memory"]
+}
+
+variable "aws_worker_ami_id" {
+  description = "Optional explicit AWS AMI ID. If null, automatically resolves latest Ubuntu 24.04 LTS AMI."
+  type        = string
+  default     = null
+}
+
+variable "aws_worker_root_disk_size_gb" {
+  description = "Root volume size in GB for AWS worker nodes."
+  type        = number
+  default     = 30
+}
+
+variable "aws_worker_root_disk_type" {
+  description = "Root EBS volume type for AWS worker nodes."
+  type        = string
+  default     = "gp3"
+}
+
+variable "aws_worker_data_disk_size_gb" {
+  description = "Optional secondary EBS data disk size in GB for persistent worker storage. Set 0 to disable."
+  type        = number
+  default     = 0
+}
+
+variable "aws_worker_data_disk_type" {
+  description = "EBS volume type for secondary worker data disk."
+  type        = string
+  default     = "gp3"
+}
+
+variable "aws_allocate_elastic_ips" {
+  description = "Allocate static Elastic IPs to AWS worker nodes so public IPs do not change on reboot/stop."
+  type        = bool
+  default     = true
+}
+
+variable "aws_vpc_cidr" {
+  description = "CIDR range of the AWS VPC for cross-cloud firewall allow rules on GCP."
+  type        = string
+  default     = "172.31.0.0/16"
+}
+
+variable "aws_source_dest_check" {
+  description = "Controls whether AWS checks source and destination IP addresses on worker instances. Must be false for Kubernetes CNI pod networking."
+  type        = bool
+  default     = false
+}
+
+# ---------------------------------------------------------------------------
+# Cluster Topology & Node Counts
+# ---------------------------------------------------------------------------
+variable "cluster_name" {
+  description = "Short cluster name used in labels, firewall rules, and tags."
+  type        = string
+  default     = "kubespray"
+}
+
+variable "instance_name_prefix" {
+  description = "Prefix used for VM instance names across both GCP and AWS."
+  type        = string
+  default     = "k8s"
+}
+
+variable "control_plane_count" {
+  description = "Number of Kubernetes control plane nodes (created on GCP)."
+  type        = number
+  default     = 3
+}
+
+variable "aws_worker_count" {
+  description = "Number of Kubernetes worker nodes to create on AWS."
+  type        = number
+  default     = 4
+}
+
+variable "gcp_worker_count" {
+  description = "Number of Kubernetes worker nodes to create on GCP (default 0 when workers run on AWS)."
+  type        = number
+  default     = 0
+}
+
+variable "worker_count" {
+  description = "Legacy variable for worker count. Kept for backwards compatibility."
+  type        = number
+  default     = 0
+}
+
+variable "control_plane_name_prefix" {
+  description = "Kubespray inventory hostname prefix for control plane nodes."
+  type        = string
+  default     = "master"
+}
+
+variable "worker_name_prefix" {
+  description = "Kubespray inventory hostname prefix for worker nodes."
+  type        = string
+  default     = "worker"
+}
+
+# ---------------------------------------------------------------------------
+# Cross-cloud Networking & Kubespray Inventory Settings
+# ---------------------------------------------------------------------------
+variable "use_wireguard_ip" {
+  description = "Assign WireGuard full-mesh overlay IPs (10.0.0.1 - 10.0.0.x) to ip and access_ip in Kubespray inventory for encrypted cross-cloud Kubernetes traffic over wg0."
+  type        = bool
+  default     = true
+}
+
+variable "use_public_access_ip" {
+  description = "Set access_ip = public_ip in the Kubespray inventory for seamless cross-cloud communication without a private VPN. Set false if using VPN/Interconnect."
+  type        = bool
+  default     = true
 }
 
 variable "ssh_source_ranges" {
@@ -256,38 +386,34 @@ variable "kubernetes_api_source_ranges" {
 }
 
 variable "nodeport_source_ranges" {
-  description = "Optional CIDR ranges allowed to connect to NodePort range 30000-32767. Leave empty to skip this firewall rule."
+  description = "Optional CIDR ranges allowed to connect to NodePort range 30000-32767. Leave empty to skip."
   type        = list(string)
   default     = []
 }
 
-variable "network_tags" {
-  description = "Additional GCP network tags to apply to every Kubernetes VM (e.g. http-server, https-server)."
-  type        = list(string)
-  default     = ["http-server", "https-server"]
+# ---------------------------------------------------------------------------
+# SSH & Ansible Credentials
+# ---------------------------------------------------------------------------
+variable "ssh_user" {
+  description = "Linux SSH username configured on both GCP and AWS VMs."
+  type        = string
+  default     = "seang"
 }
 
-
-variable "kubespray_inventory_path" {
-  description = "Path where Terraform writes the generated Kubespray inventory file (used by Kubespray cluster.yml)."
+variable "ssh_public_key_path" {
+  description = "Path to the SSH public key. If this file and ansible_ssh_private_key_file do not exist, Terraform generates them."
   type        = string
-  default     = "../../../../../ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini"
-}
-
-variable "ansible_inventory_path" {
-  description = "Path where Terraform writes the generated Ansible inventory for ansible_kubespray_k8s playbooks (zsh setup, pre-flight checks, etc.)."
-  type        = string
-  default     = "../../../../../ansible_kubespray_k8s/inventory.ini"
+  default     = "~/.ssh/id_rsa.pub"
 }
 
 variable "ansible_user" {
-  description = "Optional Ansible SSH user written into the Kubespray inventory. Leave empty to reuse ssh_user."
+  description = "Ansible SSH user written into the inventory. Leave empty to reuse ssh_user."
   type        = string
   default     = ""
 }
 
 variable "ansible_ssh_private_key_file" {
-  description = "SSH private key path written into the Kubespray inventory. If this file and ssh_public_key_path do not exist, Terraform generates them. A leading ~ uses the current Terraform user's home directory."
+  description = "SSH private key path written into the Kubespray inventory."
   type        = string
   default     = "~/.ssh/id_rsa"
 }
@@ -304,30 +430,52 @@ variable "ansible_ssh_extra_args" {
   default     = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 }
 
+variable "kubespray_inventory_path" {
+  description = "Path where Terraform writes the generated Kubespray inventory file."
+  type        = string
+  default     = "../../../../../ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini"
+}
+
+variable "ansible_inventory_path" {
+  description = "Path where Terraform writes the generated Ansible inventory for playbooks."
+  type        = string
+  default     = "../../../../../ansible_kubespray_k8s/inventory.ini"
+}
+
+variable "wireguard_inventory_path" {
+  description = "Path where Terraform writes the generated WireGuard Ansible inventory file."
+  type        = string
+  default     = "../../../../../wiregurad/inventory/hosts.ini"
+}
+
 # ---------------------------------------------------------------------------
-# Selective node deletion
+# Power State & Selective Deletion
 # ---------------------------------------------------------------------------
+variable "desired_status" {
+  description = "Desired VM power state: RUNNING to keep VMs powered on, TERMINATED to stop VMs across both GCP and AWS."
+  type        = string
+  default     = "RUNNING"
+
+  validation {
+    condition     = contains(["RUNNING", "TERMINATED"], var.desired_status)
+    error_message = "desired_status must be RUNNING or TERMINATED."
+  }
+}
+
 variable "exclude_nodes" {
-  description = "List of GCP instance names to exclude (delete) from the cluster. Names must match the full instance name with prefix (e.g. k8s-master01, k8s-worker02, k8s-haproxy-1)."
+  description = "List of instance names to permanently exclude (delete/destroy) from the cluster (e.g. k8s-master01, k8s-worker01). When removed from exclude_nodes, the machine and its resources are created/recreated."
   type        = list(string)
   default     = []
 }
 
-# ---------------------------------------------------------------------------
-# Custom firewall rules
-# ---------------------------------------------------------------------------
-# Opens arbitrary ports on cluster VMs beyond the built-in SSH / API / internal
-# rules. Each entry creates one GCP firewall rule.
-#
-# target values: "all" (every node), "control_plane", or "worker"
-variable "custom_firewall_rules" {
-  description = "List of custom firewall rules to add to the cluster. Each rule opens one or more ports for a given protocol and set of source CIDR ranges. Set target to 'all', 'control_plane', or 'worker' to scope the rule."
-  type = list(object({
-    name          = string
-    protocol      = string
-    ports         = list(string)
-    source_ranges = list(string)
-    target        = optional(string, "all")
-  }))
-  default = []
+variable "stop_nodes" {
+  description = "List of instance names to stop (power off) without deleting (e.g. k8s-master02, k8s-worker03). When removed from stop_nodes, the machine powers back on (starts running)."
+  type        = list(string)
+  default     = []
+}
+
+variable "exclude_stopped_nodes_from_inventory" {
+  description = "When true, stopped nodes are excluded from the Kubespray inventory so playbooks do not time out trying to connect to powered-off VMs. Set false to keep all created nodes in the inventory."
+  type        = bool
+  default     = true
 }

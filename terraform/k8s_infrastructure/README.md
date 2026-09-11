@@ -1,47 +1,67 @@
-# Kubernetes Infrastructure
+# Kubernetes Multi-Cloud Infrastructure (AWS + GCP)
 
-This Terraform project creates GCP VMs for Kubespray and generates the Kubespray inventory with the real VM IP addresses.
+This Terraform project provisions a hybrid-cloud Kubernetes infrastructure for Kubespray:
+- **3 Control Plane Nodes on GCP** (Compute Engine VMs with HA stacked etcd)
+- **4 Worker Nodes on AWS** (EC2 instances with Elastic IPs and multi-AZ distribution)
 
-## Flow
+Terraform automatically configures both cloud providers and generates ready-to-use Kubespray and Ansible inventories containing the real VM IP addresses.
+
+## Architecture Flow
 
 ```text
 terraform.tfvars
-  -> choose master/control-plane count and worker count
-  -> choose machine types, zones, SSH user/key
+  -> Control Plane: 3 nodes on GCP (e2-medium)
+  -> Worker Nodes:  4 nodes on AWS (t3.medium)
+  -> SSH user/key, regions, and network CIDRs
 
 Terraform
-  -> creates GCP control plane VMs
-  -> creates GCP worker VMs
-  -> reserves external IPs
-  -> reads internal IPs
-  -> writes Kubespray inventory.ini
+  -> creates 3 GCP control plane VMs + static external IPs
+  -> creates 4 AWS worker EC2 instances + Elastic IPs + security group
+  -> writes Kubespray inventory.ini (with cross-cloud access_ip configuration)
+  -> writes Ansible inventory.ini
 
 Kubespray
   -> reads inventory.ini
-  -> installs Kubernetes with Ansible
+  -> installs Kubernetes HA cluster across GCP and AWS with Ansible
 ```
 
-## Main Root
+## Directory Structure
 
 ```text
-terraform/k8s_infrastructure/live/dev/asia-southeast1/kubespray-k8s
+terraform/k8s_infrastructure/
+|-- live/
+|   `-- dev/
+|       `-- asia-southeast1/
+|           `-- kubespray-k8s/           # Main root module
+|-- modules/
+|   |-- gcp-kubespray-cluster/           # GCP control plane module
+|   `-- aws-kubespray-workers/           # AWS worker nodes module
+|-- scripts/                             # Operational automation scripts
+`-- docs/                                # Architecture & runbooks
 ```
 
-## Main Module
+## Generated Inventories
 
-```text
-terraform/k8s_infrastructure/modules/gcp-kubespray-cluster
-```
+- **Kubespray Inventory**: `terraform/ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini`
+- **Ansible Utility Inventory**: `terraform/ansible_kubespray_k8s/inventory.ini`
 
-## Generated Inventory
+## How to Run
 
-```text
-terraform/ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini
-```
+### 1. Prerequisites & Credentials
 
-Terraform updates this file during `terraform apply`.
+- **GCP**: Authenticate with Application Default Credentials:
+  ```bash
+  gcloud auth application-default login
+  ```
+- **AWS**: Configure AWS credentials via AWS CLI or environment variables:
+  ```bash
+  export AWS_ACCESS_KEY_ID="your-access-key"
+  export AWS_SECRET_ACCESS_KEY="your-secret-key"
+  export AWS_REGION="ap-southeast-1"
+  ```
+  (Alternatively, configure `~/.aws/credentials` or set `aws_profile` in `terraform.tfvars`).
 
-## Run
+### 2. Deploy Infrastructure
 
 ```bash
 cd terraform/k8s_infrastructure/live/dev/asia-southeast1/kubespray-k8s
@@ -49,24 +69,46 @@ terraform init
 terraform apply
 ```
 
-Then run Kubespray:
+### 3. Deploy Kubernetes with Kubespray
 
 ```bash
 cd terraform/ansible_kubespray_k8s/kubespray
 ansible-playbook -i inventory/sample/inventory.ini cluster.yml
 ```
 
-## Stop or Start Machines
+## Selective Node Management: Delete vs Stop
 
-To stop (power off) created VMs without deleting them:
-```bash
-./scripts/stop-machines.sh
-# OR: terraform -chdir="live/dev/asia-southeast1/kubespray-k8s" apply -var="desired_status=TERMINATED"
-```
+You can exclude nodes in two distinct ways in `terraform.tfvars`:
 
-To start machines back up:
-```bash
-./scripts/start-machines.sh
-# OR: terraform -chdir="live/dev/asia-southeast1/kubespray-k8s" apply -var="desired_status=RUNNING"
-```
+| Operation | Variable | Behavior | Recovery (Remove from list) |
+| :--- | :--- | :--- | :--- |
+| **Delete / Destroy** | `exclude_nodes = ["k8s-worker04"]` | Permanently destroys the VM, disks, and Elastic/static IP. | Terraform **creates/recreates** the node with all resources. |
+| **Stop / Power Off** | `stop_nodes = ["k8s-worker04"]` | Powers down the VM without deleting anything (disks, IPs preserved). | Terraform **powers back on (starts)** the node into `RUNNING`. |
 
+Stopped nodes are automatically excluded from `inventory.ini` so Kubespray and Ansible playbooks do not time out on powered-off instances.
+
+## Operational Scripts
+
+From `terraform/k8s_infrastructure/`:
+
+- **Stop machines** (power off VMs without deleting):
+  ```bash
+  ./scripts/stop-machines.sh                          # Stop ALL machines
+  ./scripts/stop-machines.sh k8s-worker03 k8s-worker04 # Stop SPECIFIC machines
+  ./scripts/stop-machines.sh --list                   # List running and stopped nodes
+  ```
+- **Start machines** (power on VMs):
+  ```bash
+  ./scripts/start-machines.sh                          # Start ALL machines
+  ./scripts/start-machines.sh k8s-worker03             # Start SPECIFIC stopped machines
+  ./scripts/start-machines.sh --list                   # List stopped nodes
+  ```
+- **Delete specific nodes** (permanently destroy):
+  ```bash
+  ./scripts/delete-machines.sh --list                  # List all instance names
+  ./scripts/delete-machines.sh k8s-worker04            # Delete specific node
+  ```
+- **Validate all configurations**:
+  ```bash
+  ./scripts/validate-all.sh
+  ```
