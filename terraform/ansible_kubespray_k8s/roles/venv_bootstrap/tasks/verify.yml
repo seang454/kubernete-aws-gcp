@@ -1,0 +1,49 @@
+---
+- name: Verify ansible version in kubespray venv
+  ansible.builtin.command:
+    cmd: "{{ kubespray_venv }}/bin/ansible --version"
+  register: kubespray_ansible_ver
+  changed_when: false
+  become: false
+
+- name: Show kubespray ansible version
+  ansible.builtin.debug:
+    msg: "Kubespray ansible: {{ kubespray_ansible_ver.stdout_lines[0] }}"
+
+- name: Verify gcloud is available
+  ansible.builtin.command:
+    cmd: gcloud --version
+  register: gcloud_ver
+  changed_when: false
+  become: false
+  failed_when: false
+
+- name: Show gcloud version
+  ansible.builtin.debug:
+    msg: "gcloud: {{ gcloud_ver.stdout_lines[0] }}"
+  when: gcloud_ver.rc == 0
+
+- name: Warn if gcloud not found
+  ansible.builtin.debug:
+    msg: "WARNING: gcloud not found — install Google Cloud SDK manually"
+  when: gcloud_ver.rc != 0
+
+- name: Verify GCP authentication
+  ansible.builtin.command:
+    cmd: gcloud auth application-default print-access-token
+  register: gcp_auth_check
+  changed_when: false
+  become: false
+  failed_when: false
+  environment:
+    GOOGLE_APPLICATION_CREDENTIALS: "{{ gcp_credentials }}"
+
+- name: Show GCP auth status
+  ansible.builtin.debug:
+    msg: "GCP auth: OK ✅"
+  when: gcp_auth_check.rc == 0
+
+- name: Warn if GCP not authenticated
+  ansible.builtin.debug:
+    msg: "WARNING: GCP not authenticated — run: gcloud auth application-default login"
+  when: gcp_auth_check.rc != 0

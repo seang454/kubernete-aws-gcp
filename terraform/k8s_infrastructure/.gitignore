@@ -1,0 +1,15 @@
+.terraform/
+application_default_credentials.json
+*application_default_credentials*.json
+*.tfstate
+*.tfstate.*
+state/**/*.tfstate
+state/**/*.tfstate.*
+tfplan
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

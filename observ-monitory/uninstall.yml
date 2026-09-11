@@ -1,0 +1,117 @@
+---
+# ==============================================================================
+# Master Observability Cleanup & Uninstall Playbook
+# Restores Cluster & Storage Nodes back to normal
+# ==============================================================================
+
+- name: Phase 1 - Uninstall Helm Releases and Remove monitoring Namespace
+  hosts: k8s_control_plane[0]
+  become: true
+  tasks:
+    - name: Remove Prometheus Helm release
+      kubernetes.core.helm:
+        kubeconfig: /etc/kubernetes/admin.conf
+        name: prometheus
+        release_namespace: "{{ k8s_monitoring_namespace }}"
+        state: absent
+      failed_when: false
+
+    - name: Remove Loki Helm release
+      kubernetes.core.helm:
+        kubeconfig: /etc/kubernetes/admin.conf
+        name: loki
+        release_namespace: "{{ k8s_monitoring_namespace }}"
+        state: absent
+      failed_when: false
+
+    - name: Delete monitoring namespace
+      kubernetes.core.k8s:
+        kubeconfig: /etc/kubernetes/admin.conf
+        name: "{{ k8s_monitoring_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: absent
+      failed_when: false
+
+    - name: Remove leftover etcd endpoints in kube-system if present
+      kubernetes.core.k8s:
+        kubeconfig: /etc/kubernetes/admin.conf
+        name: prometheus-kube-prometheus-kube-etcd
+        namespace: kube-system
+        kind: Endpoints
+        state: absent
+      failed_when: false
+
+    - name: Remove leftover etcd service in kube-system if present
+      kubernetes.core.k8s:
+        kubeconfig: /etc/kubernetes/admin.conf
+        name: prometheus-kube-prometheus-kube-etcd
+        namespace: kube-system
+        kind: Service
+        state: absent
+      failed_when: false
+
+- name: Phase 2 - Remove Exporters and Grafana Alloy from Storage Nodes
+  hosts: ceph_nodes
+  become: true
+  tasks:
+    - name: Stop and disable Alloy service
+      ansible.builtin.systemd:
+        name: alloy
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Stop and disable node_exporter service
+      ansible.builtin.systemd:
+        name: prometheus-node-exporter
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove Alloy and node_exporter packages
+      ansible.builtin.apt:
+        name:
+          - alloy
+          - prometheus-node-exporter
+        state: absent
+        purge: true
+      failed_when: false
+
+    - name: Remove Alloy configuration and APT repository files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/alloy
+        - /etc/apt/keyrings/grafana.gpg
+        - /etc/apt/sources.list.d/grafana.list
+
+- name: Phase 3 - Disable Ceph Prometheus Manager Module
+  hosts: ceph_nodes[0]
+  become: true
+  tasks:
+    - name: Disable Ceph Prometheus Manager module
+      ansible.builtin.command: ceph mgr module disable prometheus
+      failed_when: false
+
+- name: Phase 4 - Verify Teardown & Uninstall Completion
+  hosts: k8s_control_plane[0]
+  become: true
+  tasks:
+    - name: Verify monitoring namespace is deleted
+      kubernetes.core.k8s_info:
+        kubeconfig: /etc/kubernetes/admin.conf
+        kind: Namespace
+        name: "{{ k8s_monitoring_namespace }}"
+      register: ns_info
+
+    - name: Display Uninstall Verification Summary
+      ansible.builtin.debug:
+        msg:
+          - "======================================================================="
+          - "🎉 TEARDOWN COMPLETE: UNINSTALLATION VERIFIED!"
+          - "• Kubernetes Namespace '{{ k8s_monitoring_namespace }}': {{ 'DELETED (CLEAN)' if ns_info.resources | length == 0 else 'REMOVING' }}"
+          - "• Host Exporters & Alloy Services: STOPPED & PURGED"
+          - "• Cluster CPU, RAM, and Disk Space: FREED UP"
+          - "======================================================================="

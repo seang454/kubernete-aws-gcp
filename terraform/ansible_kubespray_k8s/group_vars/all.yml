@@ -1,0 +1,32 @@
+---
+# ---------------------------------------------------------------------------
+# ansible_kubespray_k8s — shared variables
+#
+# NOTE: This file is picked up via the root inventory.ini.
+# Run the playbook as:
+#   ansible-playbook -i inventory.ini playbook/main-iac.yaml
+#
+# All paths use ansible_env.HOME so they work for any user account.
+# kubespray_dir uses an absolute path derivation — do NOT use playbook_dir
+# here because group_vars is evaluated before the play context is fully set.
+# ---------------------------------------------------------------------------
+
+# SSH / connection
+ansible_ssh_extra_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+# Kubespray paths
+# kubespray/ is a sibling of playbook/ inside ansible_kubespray_k8s/
+# We derive the path at task-time using inventory_dir (the dir of the inventory
+# file passed with -i), which Ansible ALWAYS resolves correctly.
+kubespray_dir: "{{ inventory_dir }}/kubespray"
+kubespray_inventory: "{{ kubespray_dir }}/inventory/sample/inventory.ini"
+kubespray_log: "/tmp/kubespray-deploy.log"
+kubespray_runner: "/tmp/run-kubespray.sh"
+
+# Virtualenv paths
+kubespray_venv: "{{ ansible_facts['env']['HOME'] }}/kubespray-venv"
+kubespray_requirements: "{{ kubespray_dir }}/requirements.txt"
+
+# GCP / Ansible collections
+ansible_collections_path: "{{ ansible_facts['env']['HOME'] }}/.ansible/collections"
+gcp_credentials: "{{ ansible_facts['env']['HOME'] }}/.config/gcloud/application_default_credentials.json"

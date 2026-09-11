@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ceph-cluster-dashboard
+  namespace: {{ k8s_monitoring_namespace }}
+  labels:
+    grafana_dashboard: "1"
+data:
+  ceph-cluster.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "title": "Ceph Cluster Overview",
+      "tags": ["ceph", "storage"],
+      "timezone": "browser",
+      "panels": [
+        {
+          "title": "Ceph Health Status",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "targets": [{"expr": "ceph_health_status or vector(1)", "legendFormat": "Health"}]
+        },
+        {
+          "title": "Total Storage Used",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "targets": [{"expr": "ceph_cluster_total_used_bytes or vector(0)", "legendFormat": "Used Bytes"}]
+        },
+        {
+          "title": "Total Storage Capacity",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "targets": [{"expr": "ceph_cluster_total_bytes or vector(0)", "legendFormat": "Capacity Bytes"}]
+        },
+        {
+          "title": "Active OSDs",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "targets": [{"expr": "ceph_osd_up or vector(0)", "legendFormat": "OSD Up"}]
+        },
+        {
+          "title": "Ceph Read/Write IOPS",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "targets": [
+            {"expr": "rate(ceph_osd_op_r[5m]) or rate(ceph_pool_rd[5m]) or vector(0)", "legendFormat": "Read IOPS"},
+            {"expr": "rate(ceph_osd_op_w[5m]) or rate(ceph_pool_wr[5m]) or vector(0)", "legendFormat": "Write IOPS"}
+          ]
+        },
+        {
+          "title": "Ceph Throughput Bytes/sec",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "targets": [
+            {"expr": "rate(ceph_osd_op_r_bytes[5m]) or rate(ceph_pool_rd_bytes[5m]) or vector(0)", "legendFormat": "Read Bytes/s"},
+            {"expr": "rate(ceph_osd_op_w_bytes[5m]) or rate(ceph_pool_wr_bytes[5m]) or vector(0)", "legendFormat": "Write Bytes/s"}
+          ]
+        }
+      ],
+      "schemaVersion": 38
+    }

@@ -1,0 +1,150 @@
+# Prometheus Helm Chart Values (Production-Ready Architecture)
+# Flexible TSDB storage configuration with enable/disable toggles
+
+{% set p_sc = prometheus_storage.storage_class.enabled | default(false) %}
+{% set p_hp = prometheus_storage.host_path.enabled | default(false) %}
+{% set p_ed = prometheus_storage.empty_dir.enabled | default(false) %}
+{% set p_edm = prometheus_storage.empty_dir_memory.enabled | default(false) %}
+{% set prom_type = prometheus_storage_type | default('') %}
+
+prometheus:
+  service:
+    type: ClusterIP # Internal only
+  prometheusSpec:
+    retention: "{{ prometheus_storage.retention | default(prometheus_retention | default('24h')) }}"
+    secrets:
+      - etcd-client-certs
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m        # Safe CPU limit (burst up to 0.5 CPU)
+        memory: 1Gi
+{% if p_sc or prom_type in ['storageClass', 'pvc'] %}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          {% set sc_name = prometheus_storage.storage_class.name | default(prometheus_storage_class | default(k8s_decoupled_storage_class | default(''))) %}
+          {% if sc_name | trim != '' %}
+          storageClassName: "{{ sc_name }}"
+          {% endif %}
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: "{{ prometheus_storage.storage_class.size | default(prometheus_storage_size | default('10Gi')) }}"
+{% elif p_hp or prom_type == 'hostPath' %}
+    volumes:
+      - name: prometheus-db
+        hostPath:
+          path: "{{ prometheus_storage.host_path.path | default(prometheus_host_path | default('/var/lib/prometheus-data')) }}"
+          type: DirectoryOrCreate
+    volumeMounts:
+      - name: prometheus-db
+        mountPath: /prometheus
+{% elif p_ed or prom_type == 'emptyDir' %}
+    volumes:
+      - name: prometheus-db
+        emptyDir: {}
+    volumeMounts:
+      - name: prometheus-db
+        mountPath: /prometheus
+{% elif p_edm or prom_type == 'emptyDirMemory' %}
+    volumes:
+      - name: prometheus-db
+        emptyDir:
+          medium: Memory
+    volumeMounts:
+      - name: prometheus-db
+        mountPath: /prometheus
+{% endif %}
+
+    # Scrape Host Exporters on Storage Nodes dynamically using internal_ip
+    additionalScrapeConfigs:
+      - job_name: "ceph-mgr-exporter"
+        scrape_interval: 15s
+        static_configs:
+          - targets:
+{% for host in groups['ceph_nodes'] %}
+              - "{{ hostvars[host]['internal_ip'] | default(hostvars[host]['ansible_host']) }}:{{ ceph_exporter_port }}"
+{% endfor %}
+
+      - job_name: "node-exporter-storage-hosts"
+        scrape_interval: 15s
+        static_configs:
+          - targets:
+{% for host in groups['ceph_nodes'] %}
+              - "{{ hostvars[host]['internal_ip'] | default(hostvars[host]['ansible_host']) }}:{{ node_exporter_port }}"
+{% endfor %}
+
+      - job_name: "ganesha-nfs-exporter"
+        scrape_interval: 15s
+        static_configs:
+          - targets:
+{% for host in groups['ceph_nodes'] %}
+              - "{{ hostvars[host]['internal_ip'] | default(hostvars[host]['ansible_host']) }}:{{ ganesha_exporter_port }}"
+{% endfor %}
+
+      - job_name: "pacemaker-ha-exporter"
+        scrape_interval: 15s
+        static_configs:
+          - targets:
+{% for host in groups['ceph_nodes'] %}
+              - "{{ hostvars[host]['internal_ip'] | default(hostvars[host]['ansible_host']) }}:{{ ha_cluster_exporter_port }}"
+{% endfor %}
+
+      - job_name: "etcd-control-plane"
+        scheme: https
+        tls_config:
+          ca_file: /etc/prometheus/secrets/etcd-client-certs/ca.crt
+          cert_file: /etc/prometheus/secrets/etcd-client-certs/cert.crt
+          key_file: /etc/prometheus/secrets/etcd-client-certs/key.key
+          insecure_skip_verify: true
+        scrape_interval: 15s
+        static_configs:
+          - targets:
+{% for host in groups['k8s_control_plane'] %}
+              - "{{ hostvars[host]['internal_ip'] | default(hostvars[host]['ansible_host']) }}:2379"
+{% endfor %}
+
+alertmanager:
+  service:
+    type: ClusterIP # Internal only
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m        # Safe CPU limit
+        memory: 64Mi
+
+grafana:
+  enabled: true
+  adminPassword: "admin"
+  service:
+    type: ClusterIP # Production: Internal only (Exposed via Traefik HTTPS Ingress)
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m        # Safe CPU limit
+      memory: 256Mi
+  ingress:
+    enabled: true
+    ingressClassName: "{{ ingress_class_name }}"
+    path: /
+    pathType: Prefix
+    annotations:
+      cert-manager.io/cluster-issuer: "{{ cert_manager_cluster_issuer }}"
+      traefik.ingress.kubernetes.io/router.entrypoints: "websecure, web"
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    hosts:
+      - "{{ grafana_domain }}"
+    tls:
+      - secretName: grafana-general-tls
+        hosts:
+          - "{{ grafana_domain }}"

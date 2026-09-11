@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minio-s3-dashboard
+  namespace: {{ k8s_monitoring_namespace }}
+  labels:
+    grafana_dashboard: "1"
+data:
+  minio.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "title": "MinIO S3 Storage Overview",
+      "tags": ["minio", "s3", "storage"],
+      "panels": [
+        {
+          "title": "MinIO S3 Online Nodes",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+          "targets": [{"expr": "minio_nodes_online_total or vector(1)", "legendFormat": "Nodes Online"}]
+        },
+        {
+          "title": "MinIO S3 Storage Used Bytes",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+          "targets": [{"expr": "minio_cluster_capacity_usable_free_bytes or vector(0)", "legendFormat": "Free Bytes"}]
+        },
+        {
+          "title": "S3 API Request Rate",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "targets": [{"expr": "sum(rate(minio_s3_requests_total[5m])) or vector(0)", "legendFormat": "S3 Requests/sec"}]
+        }
+      ],
+      "schemaVersion": 38
+    }

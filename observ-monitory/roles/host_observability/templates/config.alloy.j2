@@ -1,0 +1,35 @@
+// Grafana Alloy Configuration for Storage Host Nodes
+// Managed by Ansible - Do not edit manually
+
+loki.relabel "ganesha_logs" {
+  forward_to = [loki.write.local_loki.receiver]
+  rule {
+    target_label = "job"
+    replacement  = "nfs-ganesha"
+  }
+  rule {
+    target_label = "host"
+    replacement  = constants.hostname
+  }
+}
+
+loki.source.file "ganesha_file" {
+  targets = [
+    { "__path__" = "/var/log/ganesha/ganesha.log" },
+  ]
+  forward_to = [loki.relabel.ganesha_logs.receiver]
+}
+
+loki.source.journal "syslog" {
+  forward_to = [loki.write.local_loki.receiver]
+  labels     = {
+    job  = "systemd-journal",
+    host = constants.hostname,
+  }
+}
+
+loki.write "local_loki" {
+  endpoint {
+    url = "http://{{ observability_vip }}:{{ loki_push_port }}/loki/api/v1/push"
+  }
+}

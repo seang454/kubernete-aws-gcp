@@ -1,0 +1,17 @@
+---
+# ---------------------------------------------------------------------------
+# venv_bootstrap role defaults
+# All home-dir paths resolve at runtime via lookup('env','HOME') so this
+# role works for any user account, not just seang.
+# ---------------------------------------------------------------------------
+
+gcp_venv: "/opt/gcp-venv"
+
+kubespray_venv: "{{ ansible_facts['env']['HOME'] }}/kubespray-venv"
+
+# Points to the kubespray submodule inside ansible_kubespray_k8s
+kubespray_requirements: "{{ playbook_dir | dirname }}/kubespray/requirements.txt"
+
+ansible_collections_path: "{{ ansible_facts['env']['HOME'] }}/.ansible/collections"
+
+gcp_credentials: "{{ ansible_facts['env']['HOME'] }}/.config/gcloud/application_default_credentials.json"

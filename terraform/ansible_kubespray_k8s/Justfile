@@ -1,0 +1,67 @@
+#!/usr/bin/env just --justfile
+
+# ==========================================================================
+# ansible_kubespray_k8s — Justfile
+#
+# Prerequisites:
+#   1. Run 'terraform apply' in k8s_infrastructure so VMs exist and
+#      kubespray/inventory/sample/inventory.ini is auto-generated.
+#   2. Ensure gcloud ADC is set up:  gcloud auth application-default login
+#
+# Usage:
+#   just setup-iac       # Provision nodes (zsh, etc.) then deploy k8s
+#   just deploy-k8s      # Re-run only the Kubespray cluster deployment
+#   just reset-cluster   # Wipe the cluster without destroying VMs
+# ==========================================================================
+
+# Inventory Terraform writes with real VM IPs — used for pre-flight Ansible playbook.
+# group_vars/all.yml is picked up from here (sibling directory to inventory.ini).
+ANSIBLE_INVENTORY := "inventory.ini"
+
+# Kubespray's own inventory — used only by Kubespray's cluster.yml and reset.yml.
+KUBESPRAY_INVENTORY := "kubespray/inventory/sample/inventory.ini"
+
+KUBESPRAY_VENV := env_var('HOME') + "/kubespray-venv"
+
+# -------------------------------------------------------
+# Full flow: pre-flight setup on nodes → deploy k8s
+# -------------------------------------------------------
+setup-iac:
+    @echo "=========================================="
+    @echo "  Step 1: Node pre-flight (zsh, etc.)..."
+    @echo "=========================================="
+    ANSIBLE_LOCAL_TEMP=/tmp TMPDIR=/tmp \
+      ansible-playbook -i {{ANSIBLE_INVENTORY}} playbook/main-iac.yaml --ask-become-pass
+
+    @echo ""
+    @echo "=========================================="
+    @echo "  Step 2: Deploying Kubernetes cluster..."
+    @echo "  (live output streams below)"
+    @echo "=========================================="
+    /tmp/run-kubespray.sh
+
+# -------------------------------------------------------
+# Re-run only the Kubespray deployment (skips zsh setup)
+# -------------------------------------------------------
+deploy-k8s:
+    @echo "Deploying Kubernetes cluster via Kubespray..."
+    ANSIBLE_LOCAL_TEMP=/tmp TMPDIR=/tmp \
+      {{KUBESPRAY_VENV}}/bin/ansible-playbook \
+        -b -v \
+        -i {{KUBESPRAY_INVENTORY}} \
+        kubespray/cluster.yml 2>&1 | tee /tmp/kubespray-deploy.log
+
+# -------------------------------------------------------
+# Reset (wipe) the Kubernetes cluster on existing VMs
+# -------------------------------------------------------
+reset-cluster:
+    @echo "Resetting Kubernetes cluster state..."
+    cd kubespray && \
+      ANSIBLE_LOCAL_TEMP=/tmp TMPDIR=/tmp \
+      {{KUBESPRAY_VENV}}/bin/ansible-playbook \
+        -b -f 20 \
+        -i inventory/sample/inventory.ini \
+        reset.yml \
+        --skip-tags always,bootstrap_os \
+        -e skip_downloads=true \
+        -e reset_confirmation=yes

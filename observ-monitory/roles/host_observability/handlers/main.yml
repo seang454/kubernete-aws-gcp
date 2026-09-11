@@ -1,0 +1,7 @@
+---
+# handlers file for host_observability
+
+- name: Restart Alloy
+  ansible.builtin.systemd:
+    name: alloy
+    state: restarted

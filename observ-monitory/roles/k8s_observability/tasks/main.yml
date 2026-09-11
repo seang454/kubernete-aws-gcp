@@ -1,0 +1,179 @@
+---
+# tasks file for k8s_observability (runs on k8s_control_plane)
+
+- name: Install Python dependencies for Kubernetes Ansible module via APT
+  ansible.builtin.apt:
+    name:
+      - python3-kubernetes
+      - python3-yaml
+      - python3-jsonpatch
+    state: present
+    update_cache: true
+
+- name: Install Helm binary if missing
+  ansible.builtin.shell: |
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    creates: /usr/local/bin/helm
+
+- name: Add Prometheus Helm Repository
+  kubernetes.core.helm_repository:
+    name: prometheus-community
+    repo_url: https://prometheus-community.github.io/helm-charts
+
+- name: Add Grafana Helm Repository
+  kubernetes.core.helm_repository:
+    name: grafana
+    repo_url: https://grafana.github.io/helm-charts
+
+- name: Wait for old monitoring namespace to finish terminating if present
+  kubernetes.core.k8s_info:
+    kubeconfig: /etc/kubernetes/admin.conf
+    kind: Namespace
+    name: "{{ k8s_monitoring_namespace }}"
+  register: ns_check
+  until: >
+    ns_check.resources | length == 0 or
+    ns_check.resources[0].status.phase != "Terminating"
+  retries: 20
+  delay: 3
+
+- name: Ensure monitoring namespace exists
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    name: "{{ k8s_monitoring_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Render Cert-Manager ClusterIssuer Template
+  ansible.builtin.template:
+    src: cluster-issuer.yaml.j2
+    dest: /tmp/cluster-issuer.yaml
+    mode: '0644'
+
+- name: Apply Cert-Manager ClusterIssuer (letsencrypt-prod)
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    src: /tmp/cluster-issuer.yaml
+    state: present
+
+- name: Read etcd CA certificate from primary control plane
+  ansible.builtin.slurp:
+    src: /etc/ssl/etcd/ssl/ca.pem
+  register: etcd_ca_cert
+
+- name: Read etcd admin certificate from primary control plane
+  ansible.builtin.slurp:
+    src: /etc/ssl/etcd/ssl/admin-master01.pem
+  register: etcd_admin_cert
+
+- name: Read etcd admin key from primary control plane
+  ansible.builtin.slurp:
+    src: /etc/ssl/etcd/ssl/admin-master01-key.pem
+  register: etcd_admin_key
+
+- name: Ensure etcd-client-certs secret exists in monitoring namespace
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: etcd-client-certs
+        namespace: "{{ k8s_monitoring_namespace }}"
+      type: Opaque
+      data:
+        ca.crt: "{{ etcd_ca_cert.content }}"
+        cert.crt: "{{ etcd_admin_cert.content }}"
+        key.key: "{{ etcd_admin_key.content }}"
+
+- name: Render Prometheus Values File
+  ansible.builtin.template:
+    src: prometheus-values.yaml.j2
+    dest: /tmp/prometheus-values.yaml
+    mode: '0644'
+
+- name: Render Loki Values File
+  ansible.builtin.template:
+    src: loki-values.yaml.j2
+    dest: /tmp/loki-values.yaml
+    mode: '0644'
+
+- name: Remove stale etcd endpoints in kube-system if present to allow Helm adoption
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    name: prometheus-kube-prometheus-kube-etcd
+    namespace: kube-system
+    kind: Endpoints
+    state: absent
+  ignore_errors: true
+
+- name: Remove stale etcd service in kube-system if present to allow Helm adoption
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    name: prometheus-kube-prometheus-kube-etcd
+    namespace: kube-system
+    kind: Service
+    state: absent
+  ignore_errors: true
+
+- name: Deploy Prometheus + Grafana Stack via Helm
+  kubernetes.core.helm:
+    kubeconfig: /etc/kubernetes/admin.conf
+    name: prometheus
+    chart_ref: prometheus-community/kube-prometheus-stack
+    release_namespace: "{{ k8s_monitoring_namespace }}"
+    values_files:
+      - /tmp/prometheus-values.yaml
+    state: present
+
+- name: Delete old Loki StatefulSet to allow storage schema update to Loki 3.0
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    name: loki
+    namespace: "{{ k8s_monitoring_namespace }}"
+    kind: StatefulSet
+    state: absent
+  ignore_errors: true
+
+- name: Deploy Loki Stack via Helm
+  kubernetes.core.helm:
+    kubeconfig: /etc/kubernetes/admin.conf
+    name: loki
+    chart_ref: grafana/loki-stack
+    release_namespace: "{{ k8s_monitoring_namespace }}"
+    values_files:
+      - /tmp/loki-values.yaml
+    state: present
+
+- name: Render and Apply Ceph Cluster Grafana Dashboard ConfigMap
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition: "{{ lookup('template', 'ceph-dashboard.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Render and Apply NFS-Ganesha Grafana Dashboard ConfigMap
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition: "{{ lookup('template', 'ganesha-dashboard.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Render and Apply Traefik Ingress Grafana Dashboard ConfigMap
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition: "{{ lookup('template', 'traefik-dashboard.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Render and Apply MinIO S3 Storage Grafana Dashboard ConfigMap
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition: "{{ lookup('template', 'minio-dashboard.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Render and Apply Loki Log Engine Grafana Dashboard ConfigMap
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    definition: "{{ lookup('template', 'loki-dashboard.yaml.j2') | from_yaml }}"
+    state: present

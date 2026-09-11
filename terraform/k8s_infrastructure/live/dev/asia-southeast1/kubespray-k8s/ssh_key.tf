@@ -1,0 +1,35 @@
+locals {
+  ssh_private_key_path_expanded = pathexpand(var.ansible_ssh_private_key_file)
+  ssh_public_key_path_expanded  = pathexpand(var.ssh_public_key_path)
+
+  ssh_private_key_exists = fileexists(local.ssh_private_key_path_expanded)
+  ssh_public_key_exists  = fileexists(local.ssh_public_key_path_expanded)
+  generate_ssh_key       = !(local.ssh_private_key_exists && local.ssh_public_key_exists)
+
+  ssh_public_key = local.generate_ssh_key ? tls_private_key.generated[0].public_key_openssh : trimspace(file(local.ssh_public_key_path_expanded))
+}
+
+resource "tls_private_key" "generated" {
+  count = local.generate_ssh_key ? 1 : 0
+
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "local_sensitive_file" "ssh_private_key" {
+  count = local.generate_ssh_key ? 1 : 0
+
+  content              = tls_private_key.generated[0].private_key_pem
+  filename             = local.ssh_private_key_path_expanded
+  file_permission      = "0600"
+  directory_permission = "0700"
+}
+
+resource "local_file" "ssh_public_key" {
+  count = local.generate_ssh_key ? 1 : 0
+
+  content              = "${tls_private_key.generated[0].public_key_openssh}\n"
+  filename             = local.ssh_public_key_path_expanded
+  file_permission      = "0644"
+  directory_permission = "0700"
+}

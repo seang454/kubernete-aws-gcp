@@ -1,0 +1,95 @@
+project_id = "YOUR_GCP_PROJECT_ID"
+region     = "asia-southeast1"
+zone       = "asia-southeast1-a"
+
+# Kubespray cluster size.
+# For stacked etcd HA, 1 or 3 control plane nodes is usually better than 2.
+control_plane_count = 3
+worker_count        = 3
+
+cluster_name         = "kubespray"
+instance_name_prefix = "k8s"
+
+# Kubespray inventory names become master01, master02, worker01, worker02, ...
+control_plane_name_prefix = "master"
+worker_name_prefix        = "worker"
+
+zones = [
+  "asia-southeast1-a",
+  "asia-southeast1-b",
+  "asia-southeast1-c"
+]
+
+auto_discover_up_zones = true
+
+fallback_regions = [
+  "asia-east1",
+  "asia-northeast1"
+]
+
+blocked_zones   = []
+blocked_regions = []
+
+# Option 1: leave empty and run:
+# gcloud auth application-default login
+gcp_adc_file = ""
+
+# Option 2: explicitly point Terraform to an ADC JSON file.
+# Linux/WSL: "~" dynamically means the current user's home directory.
+# gcp_adc_file = "~/.config/gcloud/application_default_credentials.json"
+
+control_plane_machine_types = [
+  "e2-standard-2"
+]
+
+worker_machine_types = [
+  "e2-standard-2"
+]
+
+# Desired VM power state: "RUNNING" to keep VMs powered on, "TERMINATED" to stop VMs.
+desired_status = "RUNNING"
+
+image                           = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
+control_plane_boot_disk_size_gb = 50
+worker_boot_disk_size_gb        = 50
+boot_disk_type                  = "pd-balanced"
+
+network    = "default"
+subnetwork = null
+
+ssh_user            = "seang"
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# Leave empty to reuse ssh_user above.
+ansible_user                 = ""
+ansible_ssh_private_key_file = "~/.ssh/id_rsa"
+ansible_python_interpreter   = "/usr/bin/python3"
+ansible_ssh_extra_args       = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+kubespray_inventory_path = "../../../../../ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini"
+
+# Terraform also writes the VM IPs into the ansible_kubespray_k8s main inventory
+# after apply, so Ansible playbooks always have fresh node IPs without manual editing.
+ansible_inventory_path = "../../../../../ansible_kubespray_k8s/inventory.ini"
+
+ssh_source_ranges            = ["0.0.0.0/0"]
+kubernetes_api_source_ranges = ["0.0.0.0/0"]
+internal_source_ranges       = ["10.0.0.0/8"]
+nodeport_source_ranges       = []
+
+# Network tags applied to every VM instance (enables default-allow-http and default-allow-https)
+network_tags = ["http-server", "https-server"]
+
+# ---------------------------------------------------------------------------
+# Custom firewall rules
+# ---------------------------------------------------------------------------
+custom_firewall_rules = [
+  {
+    name          = "allow-http-https"
+    protocol      = "tcp"
+    ports         = ["80", "443"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  }
+]
+

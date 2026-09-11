@@ -1,0 +1,28 @@
+name: Terraform Apply
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gcp-vm-dev-apply:
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Init
+        working-directory: terraform/infrastructure/live/dev/asia-southeast1/gcp-vm
+        run: terraform init
+
+      - name: Plan
+        working-directory: terraform/infrastructure/live/dev/asia-southeast1/gcp-vm
+        run: terraform plan -out=tfplan
+
+      - name: Apply
+        working-directory: terraform/infrastructure/live/dev/asia-southeast1/gcp-vm
+        run: terraform apply -auto-approve tfplan

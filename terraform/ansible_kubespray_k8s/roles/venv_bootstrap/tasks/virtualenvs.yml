@@ -1,0 +1,18 @@
+---
+- name: Create GCP venv and install Python dependencies
+  ansible.builtin.pip:
+    name:
+      - requests
+      - google-auth
+    virtualenv: "{{ gcp_venv }}"
+    virtualenv_command: python3 -m venv
+
+- name: Create kubespray virtualenv
+  ansible.builtin.command:
+    cmd: python3 -m venv {{ kubespray_venv }}
+    creates: "{{ kubespray_venv }}/bin/activate"
+
+- name: Install kubespray requirements into venv
+  ansible.builtin.pip:
+    requirements: "{{ kubespray_requirements }}"
+    virtualenv: "{{ kubespray_venv }}"

@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ganesha-nfs-dashboard
+  namespace: {{ k8s_monitoring_namespace }}
+  labels:
+    grafana_dashboard: "1"
+data:
+  ganesha-nfs.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "title": "NFS-Ganesha Storage Overview",
+      "tags": ["nfs", "ganesha", "storage"],
+      "timezone": "browser",
+      "panels": [
+        {
+          "title": "Active NFS Client Connections",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+          "targets": [{"expr": "sum(ganesha_active_clients) or sum(ganesha_clients) or sum(node_nfsd_connections) or vector(0)", "legendFormat": "Clients"}]
+        },
+        {
+          "title": "NFS Read/Write Operations",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "targets": [
+            {"expr": "rate(ganesha_read_bytes_total[5m]) or rate(node_nfsd_read_bytes_total[5m]) or vector(0)", "legendFormat": "Read Bytes/s"},
+            {"expr": "rate(ganesha_write_bytes_total[5m]) or rate(node_nfsd_rpc_count[5m]) or vector(0)", "legendFormat": "Write Bytes/s"}
+          ]
+        },
+        {
+          "title": "NFS Latency (ms)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "targets": [
+            {"expr": "(rate(ganesha_op_latency_seconds_sum[5m]) / rate(ganesha_op_latency_seconds_count[5m])) * 1000 or ganesha_op_latency_seconds * 1000 or vector(0)", "legendFormat": "Latency ms"}
+          ]
+        }
+      ],
+      "schemaVersion": 38
+    }

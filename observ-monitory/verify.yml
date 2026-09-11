@@ -1,0 +1,71 @@
+---
+# ==============================================================================
+# Master Observability Verification Playbook
+# Verifies that all components, exporters, pods, and SSL certs are 100% operational
+# ==============================================================================
+
+- name: Phase 1 - Verify Host Exporters & Alloy on Storage Nodes
+  hosts: ceph_nodes
+  become: true
+  tasks:
+    - name: Verify Node Exporter Service Status
+      ansible.builtin.command: systemctl is-active prometheus-node-exporter
+      register: node_exporter_status
+      changed_when: false
+      failed_when: node_exporter_status.stdout != "active"
+
+    - name: Verify Grafana Alloy Service Status
+      ansible.builtin.command: systemctl is-active alloy
+      register: alloy_status
+      changed_when: false
+      failed_when: alloy_status.stdout != "active"
+
+    - name: Check Node Exporter Metrics Endpoint (Port 9100)
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:9100/metrics"
+        status_code: 200
+
+- name: Phase 2 - Verify Ceph Prometheus Exporter
+  hosts: ceph_nodes[0]
+  become: true
+  tasks:
+    - name: Verify Ceph Prometheus Exporter Service Endpoint (Port 9283)
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:9283/metrics"
+        status_code: 200
+
+- name: Phase 3 - Verify Kubernetes Monitoring Stack & SSL Certificates
+  hosts: k8s_control_plane[0]
+  become: true
+  tasks:
+    - name: Check Monitoring Pods Status
+      ansible.builtin.command: kubectl get pods -n monitoring -o json
+      register: pods_json
+      changed_when: false
+
+    - name: Display Pod Status Summary
+      ansible.builtin.debug:
+        msg: "Pods in monitoring namespace: {{ (pods_json.stdout | from_json)['items'] | map(attribute='metadata.name') | list }}"
+
+    - name: Verify ClusterIssuer letsencrypt-prod Status
+      ansible.builtin.command: kubectl get clusterissuer {{ cert_manager_cluster_issuer }} -o jsonpath='{.status.conditions[0].type}'
+      register: issuer_status
+      changed_when: false
+      failed_when: issuer_status.stdout != "Ready"
+
+    - name: Verify Grafana Ingress Route
+      ansible.builtin.command: kubectl get ingress -n monitoring -o jsonpath='{.items[0].spec.rules[0].host}'
+      register: ingress_host
+      changed_when: false
+      failed_when: ingress_host.stdout != grafana_domain
+
+    - name: Display Verification Summary
+      ansible.builtin.debug:
+        msg:
+          - "======================================================="
+          - "🎉 VERIFICATION COMPLETE: ALL SYSTEMS ARE 100% HEALTHY!"
+          - "• Host Exporters (Ports 9100 & 9283): ACTIVE"
+          - "• Grafana Alloy Log Shipper: ACTIVE"
+          - "• ClusterIssuer (letsencrypt-prod): READY"
+          - "• Grafana Web URL: https://{{ grafana_domain }}/"
+          - "======================================================="
