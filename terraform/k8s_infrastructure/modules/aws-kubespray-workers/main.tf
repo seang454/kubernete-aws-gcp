@@ -159,13 +159,14 @@ resource "aws_security_group_rule" "ssh" {
   description       = "SSH access"
 }
 
-# Ingress Kubelet API (10250)
+# Ingress Kubelet API (10250) - user configurable (disabled by default when empty)
 resource "aws_security_group_rule" "kubelet" {
+  count             = length(var.kubelet_source_ranges) > 0 ? 1 : 0
   type              = "ingress"
   from_port         = 10250
   to_port           = 10250
   protocol          = "tcp"
-  cidr_blocks       = var.kubernetes_api_source_ranges
+  cidr_blocks       = var.kubelet_source_ranges
   security_group_id = aws_security_group.worker.id
   description       = "Kubelet API access"
 }
@@ -207,23 +208,24 @@ resource "aws_security_group_rule" "nodeport" {
 
 # Ingress WireGuard VPN (51820/udp)
 resource "aws_security_group_rule" "wireguard" {
+  count             = length(var.wireguard_source_ranges) > 0 ? 1 : 0
   type              = "ingress"
   from_port         = 51820
   to_port           = 51820
   protocol          = "udp"
-  cidr_blocks       = ["0.0.0.0/0"]
+  cidr_blocks       = var.wireguard_source_ranges
   security_group_id = aws_security_group.worker.id
   description       = "WireGuard VPN peer-to-peer mesh"
 }
 
 # Ingress Kubernetes API server (6443) when control plane nodes are placed on AWS
 resource "aws_security_group_rule" "kube_api" {
-  count             = var.control_plane_count > 0 ? 1 : 0
+  count             = var.control_plane_count > 0 && length(var.kubernetes_api_source_ranges) > 0 ? 1 : 0
   type              = "ingress"
   from_port         = 6443
   to_port           = 6443
   protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
+  cidr_blocks       = var.kubernetes_api_source_ranges
   security_group_id = aws_security_group.worker.id
   description       = "Kubernetes API Server access"
 }
@@ -253,7 +255,11 @@ locals {
         source_ranges = rule.source_ranges
       }
     ]
-    if contains(["all", "worker"], coalesce(rule.target, "all"))
+    if (
+      coalesce(rule.target, "all") == "all" ||
+      (coalesce(rule.target, "all") == "worker" && var.worker_count > 0) ||
+      (coalesce(rule.target, "all") == "control_plane" && var.control_plane_count > 0)
+    )
   ])
 }
 

@@ -104,6 +104,8 @@ module "gcp_kubespray_cluster" {
   ssh_source_ranges               = var.ssh_source_ranges
   internal_source_ranges          = distinct(concat(var.internal_source_ranges, [var.aws_vpc_cidr]))
   kubernetes_api_source_ranges    = var.kubernetes_api_source_ranges
+  wireguard_source_ranges         = var.wireguard_source_ranges
+  kubelet_source_ranges           = var.kubelet_source_ranges
   nodeport_source_ranges          = var.nodeport_source_ranges
   network_tags                    = var.network_tags
   custom_firewall_rules           = var.custom_firewall_rules
@@ -138,8 +140,7 @@ module "aws_kubespray_workers" {
   auto_discover_up_zones          = var.aws_auto_discover_up_zones
   blocked_zones                   = var.aws_blocked_availability_zones
   vpc_id                          = var.aws_vpc_id
-  subnet_ids                      = var.aws_subnet_ids
-  worker_machine_types            = var.aws_worker_instance_types
+  worker_machine_types            = length(var.aws_worker_machine_types) > 0 ? var.aws_worker_machine_types : var.aws_worker_instance_types
   fallback_machine_types          = var.aws_fallback_machine_types
   blocked_machine_types           = var.aws_blocked_machine_types
   random_resource_type            = var.aws_random_resource_type
@@ -153,6 +154,8 @@ module "aws_kubespray_workers" {
   ssh_source_ranges               = var.ssh_source_ranges
   cluster_source_ranges           = distinct(concat(var.internal_source_ranges, [for ip in module.gcp_kubespray_cluster.cluster_public_ips : "${ip}/32" if ip != null && ip != ""]))
   kubernetes_api_source_ranges    = var.kubernetes_api_source_ranges
+  wireguard_source_ranges         = var.wireguard_source_ranges
+  kubelet_source_ranges           = var.kubelet_source_ranges
   nodeport_source_ranges          = var.nodeport_source_ranges
   custom_firewall_rules           = var.custom_firewall_rules
   desired_status                  = var.desired_status

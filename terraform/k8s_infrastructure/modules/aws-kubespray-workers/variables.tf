@@ -209,7 +209,19 @@ variable "enable_cross_cluster_rule" {
 }
 
 variable "kubernetes_api_source_ranges" {
-  description = "CIDR ranges allowed to access worker kubelet API (port 10250)."
+  description = "CIDR ranges allowed to access Kubernetes API Server (port 6443)."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "kubelet_source_ranges" {
+  description = "Optional CIDR ranges allowed to access worker kubelet API (port 10250). Leave empty [] to keep internal-only."
+  type        = list(string)
+  default     = []
+}
+
+variable "wireguard_source_ranges" {
+  description = "CIDR ranges allowed to connect to WireGuard VPN port 51820/udp."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }

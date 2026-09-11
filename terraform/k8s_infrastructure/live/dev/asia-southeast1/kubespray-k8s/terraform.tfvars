@@ -69,14 +69,22 @@ subnetwork = null
 # ---------------------------------------------------------------------------
 aws_region                     = "ap-southeast-1"
 aws_profile                    = ""
+
+# Recommended: empty ("") means AWS automatically discovers credentials from
+# ~/.aws/credentials or environment variables. You can set a custom path:
+# e.g. aws_shared_credentials_file = "~/.aws/credentials"
+# e.g. aws_shared_credentials_file = "/home/seang/secrets/my_aws_credentials"
+aws_shared_credentials_file    = ""
+aws_shared_config_file         = ""
 aws_availability_zones         = []
 aws_auto_discover_up_zones     = true
 aws_blocked_availability_zones = []
 
-# Stockout fallback hierarchy for AWS worker nodes
-aws_worker_machine_types   = ["t3.medium"]
-aws_fallback_machine_types = ["t3a.medium", "t2.medium", "m5.large"]
-aws_blocked_machine_types  = []
+# Machine types for AWS nodes (conforms to AWS Account tier restrictions)
+aws_control_plane_machine_types = ["t3.small"]
+aws_worker_machine_types        = ["t3.small"]
+aws_fallback_machine_types      = ["t3.small", "t3.micro"]
+aws_blocked_machine_types       = []
 aws_random_resource_type   = ["Standard", "High CPU", "High Memory"]
 
 # Storage
@@ -157,16 +165,58 @@ ansible_ssh_extra_args       = "-o StrictHostKeyChecking=no -o UserKnownHostsFil
 kubespray_inventory_path = "../../../../../ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini"
 ansible_inventory_path   = "../../../../../ansible_kubespray_k8s/inventory.ini"
 
-# Firewall and Security Group Access
-ssh_source_ranges            = ["0.0.0.0/0"]
-kubernetes_api_source_ranges = ["0.0.0.0/0"]
-internal_source_ranges       = ["10.0.0.0/8"]
+# ---------------------------------------------------------------------------
+# Firewall and Security Group Access (Unified Single-List Pattern)
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Internal Private Cluster Subnet (WireGuard + Kubernetes Pods + Services)
+# ---------------------------------------------------------------------------
+# 10.0.0.0/8 is the private IP range that allows ALL internal cluster traffic
+# to flow freely through the encrypted WireGuard VPN tunnel without public internet exposure.
+# This single range covers:
+#   • WireGuard Node IPs:      10.0.0.1 – 10.0.0.7 (cross-cloud node mesh)
+#   • Kubernetes Pod Network:  10.233.64.0/18 (Calico/Flannel pod-to-pod routing)
+#   • Kubernetes Service IPs:  10.233.0.0/18 (Internal ClusterIPs & CoreDNS)
+#   • etcd Quorum (2379-2380) & Kubelet API (10250) inter-node communication
+# CRITICAL: Do NOT delete or set to [] — without this, nodes cannot talk to each other!
+internal_source_ranges = ["10.0.0.0/8"]
 
 # Network tags applied to every GCP VM instance
 network_tags = ["http-server", "https-server"]
 
-# Custom firewall rules
+# Set to [] when managing via custom_firewall_rules below
+ssh_source_ranges            = []
+kubernetes_api_source_ranges = []
+wireguard_source_ranges      = []
+kubelet_source_ranges        = []
+nodeport_source_ranges       = []
+
+# ---------------------------------------------------------------------------
+# All Open Ports Defined in One Clean, Central List
+# Easily add, remove, or modify ports across both GCP and AWS!
+# ---------------------------------------------------------------------------
 custom_firewall_rules = [
+  {
+    name          = "allow-ssh"
+    protocol      = "tcp"
+    ports         = ["22"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  },
+  {
+    name          = "allow-wireguard"
+    protocol      = "udp"
+    ports         = ["51820"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  },
+  {
+    name          = "allow-kube-api"
+    protocol      = "tcp"
+    ports         = ["6443"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "control_plane"
+  },
   {
     name          = "allow-http-https"
     protocol      = "tcp"

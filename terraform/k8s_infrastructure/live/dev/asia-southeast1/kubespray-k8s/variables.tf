@@ -172,6 +172,19 @@ variable "aws_profile" {
   default     = ""
 }
 
+variable "aws_shared_credentials_file" {
+  description = "Optional custom path to AWS credentials file (e.g. '~/.aws/credentials' or a custom path). Leave empty for automatic discovery."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_shared_config_file" {
+  description = "Optional custom path to AWS config file (e.g. '~/.aws/config' or a custom path). Leave empty for automatic discovery."
+  type        = string
+  default     = ""
+}
+
 variable "aws_access_key" {
   description = "Optional explicit AWS access key ID. If empty, uses AWS environment variables or profile."
   type        = string
@@ -407,6 +420,18 @@ variable "kubernetes_api_source_ranges" {
   description = "CIDR ranges allowed to connect to the Kubernetes API server on 6443."
   type        = list(string)
   default     = ["0.0.0.0/0"]
+}
+
+variable "wireguard_source_ranges" {
+  description = "CIDR ranges allowed to connect to WireGuard VPN port 51820/udp. Defaults to ['0.0.0.0/0'] for multi-cloud mesh."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "kubelet_source_ranges" {
+  description = "Optional CIDR ranges allowed to access worker kubelet API (port 10250). Leave empty [] to keep internal-only (recommended)."
+  type        = list(string)
+  default     = []
 }
 
 variable "nodeport_source_ranges" {

@@ -177,3 +177,37 @@ flowchart TD
     CheckEC2 -- Inside AWS EC2 --> UseRole["Use IAM Instance Role"]
     CheckEC2 -- Local PC --> Fail["❌ Error: No valid credential sources found<br/>(ec2imds context deadline exceeded)"]
 ```
+
+---
+
+## 4. Configuring Custom File Locations via `terraform.tfvars`
+
+Just like GCP supports `gcp_adc_file = "/path/to/credentials.json"`, you can now also customize the AWS credential paths directly in [`terraform.tfvars`](file:///home/seang/kubernete-aws-gcp/terraform/k8s_infrastructure/live/dev/asia-southeast1/kubespray-k8s/terraform.tfvars):
+
+```hcl
+# In terraform.tfvars:
+
+# 1. Leave empty for automatic discovery (uses ~/.aws/credentials or env vars):
+aws_shared_credentials_file = ""
+aws_shared_config_file      = ""
+
+# 2. Or point to any custom path you want:
+# aws_shared_credentials_file = "~/.aws/credentials"
+# aws_shared_credentials_file = "/home/seang/my-secrets/aws_creds"
+# aws_shared_config_file      = "/home/seang/my-secrets/aws_conf"
+```
+
+### How Terraform processes this:
+In [`providers.tf`](file:///home/seang/kubernete-aws-gcp/terraform/k8s_infrastructure/live/dev/asia-southeast1/kubespray-k8s/providers.tf):
+```hcl
+provider "aws" {
+  region  = var.aws_region
+  profile = trimspace(var.aws_profile) != "" ? var.aws_profile : null
+
+  # If you set a path in terraform.tfvars, Terraform uses it.
+  # If left empty (""), it evaluates to null and falls back to ~/.aws/credentials automatically.
+  shared_credentials_files = trimspace(var.aws_shared_credentials_file) != "" ? [pathexpand(trimspace(var.aws_shared_credentials_file))] : null
+  shared_config_files      = trimspace(var.aws_shared_config_file) != "" ? [pathexpand(trimspace(var.aws_shared_config_file))] : null
+}
+```
+

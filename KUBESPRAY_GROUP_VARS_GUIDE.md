@@ -397,3 +397,52 @@ aws_worker_count        = 4  # Workers on Amazon AWS
 - **Sequential Node Names**: `master-01`, `master-02` on GCP, and `master-03` on AWS automatically offsets by GCP's count so there are never duplicate or missing names.
 - **Dynamic WireGuard Mesh**: All active nodes automatically peer with each other over `wg0` with IPs assigned sequentially (`10.0.0.1` to `10.0.0.N`).
 - **Conditional Firewalls**: Cross-cloud firewall rules only create when both clouds have active nodes. If a cloud has 0 nodes, no firewall rules or keys are wasted.
+
+---
+
+## 8. Unified Firewall & Port Control (`terraform.tfvars`)
+
+All open ports across both GCP and AWS are managed in a **clean, single list** called `custom_firewall_rules`.
+
+### The Unified List Pattern:
+```hcl
+custom_firewall_rules = [
+  {
+    name          = "allow-ssh"
+    protocol      = "tcp"
+    ports         = ["22"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  },
+  {
+    name          = "allow-wireguard"
+    protocol      = "udp"
+    ports         = ["51820"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  },
+  {
+    name          = "allow-kube-api"
+    protocol      = "tcp"
+    ports         = ["6443"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "control_plane"
+  },
+  {
+    name          = "allow-http-https"
+    protocol      = "tcp"
+    ports         = ["80", "443"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  }
+]
+```
+
+### Why This Single-List Pattern is Better:
+1. **Single Source of Truth**: You can see all open ports in one single view.
+2. **Easy to Add Ports**: Simply add a block with your desired port (e.g. Grafana `3000` or Postgres `5432`).
+3. **Easy to Remove Ports**: Simply delete or comment out the block to close the port.
+4. **Node Scoping**: Use `target = "all"`, `target = "control_plane"`, or `target = "worker"` to control which nodes open the port.
+5. **Cross-Cloud Parity**: The rule applies to both GCP and AWS simultaneously.
+
+

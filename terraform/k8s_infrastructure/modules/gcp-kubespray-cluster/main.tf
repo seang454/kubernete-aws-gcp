@@ -323,8 +323,26 @@ resource "google_compute_firewall" "nodeport" {
   target_tags   = [local.cluster_tag]
 }
 
+# Ingress Kubelet API (10250) - user configurable (disabled by default when empty)
+resource "google_compute_firewall" "kubelet" {
+  count = length(var.kubelet_source_ranges) > 0 ? 1 : 0
+
+  name    = "${var.instance_name_prefix}-allow-kubelet"
+  network = var.network
+
+  allow {
+    protocol = "tcp"
+    ports    = ["10250"]
+  }
+
+  source_ranges = var.kubelet_source_ranges
+  target_tags   = [local.cluster_tag]
+}
+
 # Ingress WireGuard VPN (51820/udp)
 resource "google_compute_firewall" "wireguard" {
+  count = length(var.wireguard_source_ranges) > 0 ? 1 : 0
+
   name    = "${var.instance_name_prefix}-allow-wireguard"
   network = var.network
 
@@ -333,7 +351,7 @@ resource "google_compute_firewall" "wireguard" {
     ports    = ["51820"]
   }
 
-  source_ranges = ["0.0.0.0/0"]
+  source_ranges = var.wireguard_source_ranges
   target_tags   = [local.cluster_tag]
 }
 

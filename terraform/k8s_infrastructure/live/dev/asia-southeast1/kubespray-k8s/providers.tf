@@ -37,6 +37,11 @@ provider "aws" {
   region  = var.aws_region
   profile = trimspace(var.aws_profile) != "" ? var.aws_profile : null
 
+  # Custom credential / config file paths configured from terraform.tfvars
+  # Leave empty ("") to use automatic SDK discovery (~/.aws/credentials)
+  shared_credentials_files = trimspace(var.aws_shared_credentials_file) != "" ? [pathexpand(trimspace(var.aws_shared_credentials_file))] : null
+  shared_config_files      = trimspace(var.aws_shared_config_file) != "" ? [pathexpand(trimspace(var.aws_shared_config_file))] : null
+
   # Credentials fallback automatically to standard AWS environment variables
   # (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) or ~/.aws credentials
   access_key = trimspace(var.aws_access_key) != "" ? var.aws_access_key : null

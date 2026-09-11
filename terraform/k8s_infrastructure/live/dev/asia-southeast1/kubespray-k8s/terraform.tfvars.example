@@ -10,8 +10,10 @@ gcp_worker_count        = 0
 aws_worker_count        = 4
 
 # AWS Configuration
-aws_region                   = "ap-southeast-1"
-aws_profile                  = ""
+aws_region                  = "ap-southeast-1"
+aws_profile                 = ""
+aws_shared_credentials_file = "" # Optional: e.g. "~/.aws/credentials" or custom path
+aws_shared_config_file      = "" # Optional: e.g. "~/.aws/config" or custom path
 aws_worker_instance_types    = ["t3.medium"]
 aws_worker_root_disk_size_gb = 30
 aws_worker_root_disk_type    = "gp3"
@@ -48,3 +50,49 @@ ansible_user                 = ""
 ansible_ssh_private_key_file = "~/.ssh/id_rsa"
 ansible_python_interpreter   = "/usr/bin/python3"
 ansible_ssh_extra_args       = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+# ---------------------------------------------------------------------------
+# Internal Private Cluster Subnet (WireGuard + Kubernetes Pods + Services)
+# ---------------------------------------------------------------------------
+# 10.0.0.0/8 allows all internal cluster traffic over the encrypted WireGuard tunnel.
+# Covers node WireGuard IPs (10.0.0.x), Pods (10.233.64.0/18), and Services (10.233.0.0/18).
+internal_source_ranges = ["10.0.0.0/8"]
+
+# Core overrides (keep empty [] to manage cleanly in custom_firewall_rules)
+ssh_source_ranges            = []
+kubernetes_api_source_ranges = []
+wireguard_source_ranges      = []
+kubelet_source_ranges        = []
+nodeport_source_ranges       = []
+
+# Unified firewall rules (Single-list pattern)
+custom_firewall_rules = [
+  {
+    name          = "allow-ssh"
+    protocol      = "tcp"
+    ports         = ["22"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  },
+  {
+    name          = "allow-wireguard"
+    protocol      = "udp"
+    ports         = ["51820"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  },
+  {
+    name          = "allow-kube-api"
+    protocol      = "tcp"
+    ports         = ["6443"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "control_plane"
+  },
+  {
+    name          = "allow-http-https"
+    protocol      = "tcp"
+    ports         = ["80", "443"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  }
+]

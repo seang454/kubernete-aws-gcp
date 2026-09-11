@@ -260,6 +260,18 @@ variable "kubernetes_api_source_ranges" {
   default     = ["0.0.0.0/0"]
 }
 
+variable "kubelet_source_ranges" {
+  description = "Optional CIDR ranges allowed to access worker kubelet API (port 10250). Leave empty [] to keep internal-only."
+  type        = list(string)
+  default     = []
+}
+
+variable "wireguard_source_ranges" {
+  description = "CIDR ranges allowed to connect to WireGuard VPN port 51820/udp."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
 variable "nodeport_source_ranges" {
   description = "Optional CIDR ranges allowed to connect to Kubernetes NodePort range 30000-32767. Leave empty to skip this firewall rule."
   type        = list(string)
