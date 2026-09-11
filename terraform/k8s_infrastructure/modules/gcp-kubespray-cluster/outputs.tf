@@ -9,6 +9,7 @@ output "control_plane_nodes" {
       public_ip        = one(google_compute_instance.this[node.name].network_interface[0].access_config[*].nat_ip)
       private_ip       = google_compute_instance.this[node.name].network_interface[0].network_ip
       etcd_member_name = node.name
+      cloud            = "gcp"
     }
   ]
 }
@@ -23,6 +24,7 @@ output "worker_nodes" {
       machine_type  = node.machine_type
       public_ip     = one(google_compute_instance.this[node.name].network_interface[0].access_config[*].nat_ip)
       private_ip    = google_compute_instance.this[node.name].network_interface[0].network_ip
+      cloud         = "gcp"
     }
   ]
 }

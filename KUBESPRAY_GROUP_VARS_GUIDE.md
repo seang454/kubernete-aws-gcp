@@ -332,3 +332,68 @@ cd /home/seang/kubernete-aws-gcp/terraform/wiregurad
 cd /home/seang/kubernete-aws-gcp/terraform/ansible_kubespray_k8s/kubespray
 ansible-playbook -i inventory/sample/inventory.ini cluster.yml
 ```
+
+---
+
+## 🎛️ Chapter 7: Dynamic Multi-Cloud Sizing (Any Combination!)
+
+Terraform is now configured with **full dynamic elasticity**. You can place any number of Master or Worker nodes on either cloud, or put 100% of everything on a single cloud, simply by editing [`terraform.tfvars`](file:///home/seang/kubernete-aws-gcp/terraform/k8s_infrastructure/live/dev/asia-southeast1/kubespray-k8s/terraform.tfvars):
+
+```hcl
+gcp_control_plane_count = 2  # Masters on Google Cloud
+aws_control_plane_count = 1  # Masters on Amazon AWS
+gcp_worker_count        = 0  # Workers on Google Cloud
+aws_worker_count        = 4  # Workers on Amazon AWS
+```
+
+### Popular Topologies You Can Set:
+
+#### Scenario A: Cross-Cloud HA Split (Recommended: 2 GCP + 1 AWS Master)
+* **Configuration**:
+  ```hcl
+  gcp_control_plane_count = 2
+  aws_control_plane_count = 1
+  gcp_worker_count        = 0
+  aws_worker_count        = 4
+  ```
+* **Result**:
+  - `master-01`, `master-02` on Google Cloud.
+  - `master-03` on Amazon AWS.
+  - `worker-01` to `worker-04` on Amazon AWS.
+  - WireGuard IPs: `10.0.0.1` – `10.0.0.7`.
+  - **Fault Tolerance**: If AWS goes down, GCP still has 2 out of 3 masters (majority quorum), so the Kubernetes control plane survives!
+
+#### Scenario B: 100% Google Cloud (Zero AWS costs)
+* **Configuration**:
+  ```hcl
+  gcp_control_plane_count = 3
+  aws_control_plane_count = 0
+  gcp_worker_count        = 4
+  aws_worker_count        = 0
+  ```
+* **Result**: All 7 machines run in GCP. AWS module creates 0 resources and incurs 0 cost.
+
+#### Scenario C: 100% Amazon AWS (Zero GCP costs)
+* **Configuration**:
+  ```hcl
+  gcp_control_plane_count = 0
+  aws_control_plane_count = 3
+  gcp_worker_count        = 0
+  aws_worker_count        = 4
+  ```
+* **Result**: All 7 machines run in AWS. GCP module creates 0 resources and incurs 0 cost.
+
+#### Scenario D: Full 50/50 Balanced Split
+* **Configuration**:
+  ```hcl
+  gcp_control_plane_count = 2
+  aws_control_plane_count = 1
+  gcp_worker_count        = 2
+  aws_worker_count        = 2
+  ```
+* **Result**: Masters and workers are balanced across both clouds, giving maximum redundancy for application workloads.
+
+### How Terraform Automatically Handles It:
+- **Sequential Node Names**: `master-01`, `master-02` on GCP, and `master-03` on AWS automatically offsets by GCP's count so there are never duplicate or missing names.
+- **Dynamic WireGuard Mesh**: All active nodes automatically peer with each other over `wg0` with IPs assigned sequentially (`10.0.0.1` to `10.0.0.N`).
+- **Conditional Firewalls**: Cross-cloud firewall rules only create when both clouds have active nodes. If a cloud has 0 nodes, no firewall rules or keys are wasted.

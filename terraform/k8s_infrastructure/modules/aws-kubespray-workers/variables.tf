@@ -10,6 +10,29 @@ variable "instance_name_prefix" {
   default     = "k8s"
 }
 
+variable "control_plane_count" {
+  description = "Number of Kubernetes control plane nodes to create in AWS."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.control_plane_count >= 0 && floor(var.control_plane_count) == var.control_plane_count
+    error_message = "control_plane_count must be a whole number that is 0 or greater."
+  }
+}
+
+variable "control_plane_name_prefix" {
+  description = "Kubespray inventory hostname prefix for control plane nodes."
+  type        = string
+  default     = "master"
+}
+
+variable "control_plane_index_offset" {
+  description = "Starting offset for control plane node numbering (e.g. if 2 GCP masters exist, offset by 2 so AWS starts at master03)."
+  type        = number
+  default     = 0
+}
+
 variable "worker_count" {
   description = "Number of Kubernetes worker nodes to create in AWS."
   type        = number
@@ -63,6 +86,18 @@ variable "blocked_zones" {
 # ---------------------------------------------------------------------------
 # Concept 2: Machine Types & Stockout Fallbacks (matching GCP)
 # ---------------------------------------------------------------------------
+variable "control_plane_machine_types" {
+  description = "Primary EC2 instance types for control plane nodes by index. Reuses last value if more nodes than types."
+  type        = list(string)
+  default     = ["t3.medium", "t3a.medium"]
+}
+
+variable "control_plane_boot_disk_size_gb" {
+  description = "Root EBS volume size in GB for control plane nodes."
+  type        = number
+  default     = 50
+}
+
 variable "worker_machine_types" {
   description = "Primary EC2 instance types for worker nodes by index. Reuses last value if more nodes than types."
   type        = list(string)

@@ -12,7 +12,7 @@ zone       = "asia-east1-a"
 
 # Recommended: empty means Google automatically discovers ADC for whichever
 # user runs Terraform after `gcloud auth application-default login`.
-gcp_adc_file = ""
+gcp_adc_file = "/home/seang/.config/gcloud/application_default_credentials.json"
 
 # Terraform spreads nodes across these zones in order.
 zones = [
@@ -93,9 +93,17 @@ aws_source_dest_check    = false
 # ---------------------------------------------------------------------------
 # Hybrid Cluster Sizing: 3 Control-Plane on GCP, 4 Workers on AWS
 # ---------------------------------------------------------------------------
-control_plane_count = 3
-gcp_worker_count    = 0
-aws_worker_count    = 4
+# Dynamic Multi-Cloud Node Topology:
+# Customize any combination of control plane and worker nodes across GCP and AWS:
+# - All on GCP:      gcp_control_plane_count = 3, gcp_worker_count = 4, aws_control_plane_count = 0, aws_worker_count = 0
+# - All on AWS:      gcp_control_plane_count = 0, gcp_worker_count = 0, aws_control_plane_count = 3, aws_worker_count = 4
+# - Split Masters:   gcp_control_plane_count = 2, aws_control_plane_count = 1, aws_worker_count = 4 (HA quorum!)
+# - Split Both:      gcp_control_plane_count = 2, aws_control_plane_count = 1, gcp_worker_count = 2, aws_worker_count = 2
+# ---------------------------------------------------------------------------
+gcp_control_plane_count = 2
+aws_control_plane_count = 1
+gcp_worker_count        = 0
+aws_worker_count        = 4
 
 cluster_name         = "kubespray"
 instance_name_prefix = "k8s"

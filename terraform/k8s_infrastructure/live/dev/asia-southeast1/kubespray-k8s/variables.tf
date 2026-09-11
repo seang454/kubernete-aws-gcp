@@ -317,9 +317,33 @@ variable "instance_name_prefix" {
 }
 
 variable "control_plane_count" {
-  description = "Number of Kubernetes control plane nodes (created on GCP)."
+  description = "Total or fallback control plane count. Kept for backwards compatibility."
   type        = number
   default     = 3
+}
+
+variable "gcp_control_plane_count" {
+  description = "Number of Kubernetes control plane nodes on GCP (if null, uses control_plane_count)."
+  type        = number
+  default     = null
+}
+
+variable "aws_control_plane_count" {
+  description = "Number of Kubernetes control plane nodes on AWS (default 0; can set 1, 2, etc. for cross-cloud multi-master)."
+  type        = number
+  default     = 0
+}
+
+variable "aws_control_plane_machine_types" {
+  description = "EC2 instance types for AWS control plane nodes."
+  type        = list(string)
+  default     = ["t3.medium", "t3a.medium"]
+}
+
+variable "aws_control_plane_boot_disk_size_gb" {
+  description = "Root EBS volume size in GB for AWS control plane nodes."
+  type        = number
+  default     = 50
 }
 
 variable "aws_worker_count" {

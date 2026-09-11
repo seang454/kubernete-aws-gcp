@@ -21,13 +21,13 @@ variable "instance_name_prefix" {
 }
 
 variable "control_plane_count" {
-  description = "Number of Kubernetes control plane nodes to create."
+  description = "Number of Kubernetes control-plane nodes."
   type        = number
   default     = 3
 
   validation {
-    condition     = var.control_plane_count >= 1 && floor(var.control_plane_count) == var.control_plane_count
-    error_message = "control_plane_count must be a whole number that is 1 or greater."
+    condition     = var.control_plane_count >= 0 && floor(var.control_plane_count) == var.control_plane_count
+    error_message = "control_plane_count must be a whole number that is 0 or greater."
   }
 }
 

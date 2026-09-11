@@ -121,6 +121,7 @@ locals {
 
 # 5. SSH Key Pair
 resource "aws_key_pair" "this" {
+  count           = (var.worker_count + var.control_plane_count) > 0 ? 1 : 0
   key_name_prefix = "${var.instance_name_prefix}-key-"
   public_key      = trimspace(var.ssh_public_key)
 
@@ -215,6 +216,30 @@ resource "aws_security_group_rule" "wireguard" {
   description       = "WireGuard VPN peer-to-peer mesh"
 }
 
+# Ingress Kubernetes API server (6443) when control plane nodes are placed on AWS
+resource "aws_security_group_rule" "kube_api" {
+  count             = var.control_plane_count > 0 ? 1 : 0
+  type              = "ingress"
+  from_port         = 6443
+  to_port           = 6443
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.worker.id
+  description       = "Kubernetes API Server access"
+}
+
+# Ingress etcd (2379-2380) for multi-master cluster replication
+resource "aws_security_group_rule" "etcd" {
+  count             = var.control_plane_count > 0 ? 1 : 0
+  type              = "ingress"
+  from_port         = 2379
+  to_port           = 2380
+  protocol          = "tcp"
+  cidr_blocks       = var.cluster_source_ranges
+  security_group_id = aws_security_group.worker.id
+  description       = "etcd client and peer replication"
+}
+
 # Custom firewall rules matching GCP structure (e.g. HTTP 80, HTTPS 443)
 locals {
   active_custom_rules = flatten([
@@ -258,8 +283,25 @@ resource "aws_security_group_rule" "egress_all" {
   description       = "Allow all outbound traffic"
 }
 
-# 7. Worker Node Planning & Selective Deletion (Concept 7)
+# 7. Node Planning & Selective Deletion (Concept 7)
 locals {
+  control_plane_nodes = [
+    for index in range(var.control_plane_count) : {
+      name          = format("%s%02d", var.control_plane_name_prefix, index + 1 + var.control_plane_index_offset)
+      instance_name = format("%s-%s%02d", var.instance_name_prefix, var.control_plane_name_prefix, index + 1 + var.control_plane_index_offset)
+      role          = "control_plane"
+      node_index    = index
+      global_index  = index + var.control_plane_index_offset
+      zone          = local.effective_zones[index % length(local.effective_zones)]
+      subnet_id     = local.az_to_subnets[local.effective_zones[index % length(local.effective_zones)]][0]
+      machine_type = contains(var.blocked_machine_types, var.control_plane_machine_types[min(index, length(var.control_plane_machine_types) - 1)]) ? (
+        length(local.usable_fallback_machines) > 0 ? local.usable_fallback_machines[(index + var.control_plane_index_offset) % length(local.usable_fallback_machines)] : local.default_fallback_machine
+      ) : var.control_plane_machine_types[min(index, length(var.control_plane_machine_types) - 1)]
+      root_disk_size_gb  = var.control_plane_boot_disk_size_gb
+      has_secondary_disk = false
+    }
+  ]
+
   worker_nodes = [
     for index in range(var.worker_count) : {
       name          = format("%s%02d", var.worker_name_prefix, index + 1 + var.index_offset)
@@ -277,7 +319,14 @@ locals {
     }
   ]
 
-  worker_nodes_by_name = { for node in local.worker_nodes : node.name => node }
+  all_nodes         = concat(local.control_plane_nodes, local.worker_nodes)
+  all_nodes_by_name = { for node in local.all_nodes : node.name => node }
+
+  active_control_plane_nodes = [
+    for node in local.control_plane_nodes :
+    node
+    if !contains(var.exclude_nodes, node.instance_name)
+  ]
 
   active_worker_nodes = [
     for node in local.worker_nodes :
@@ -285,17 +334,14 @@ locals {
     if !contains(var.exclude_nodes, node.instance_name)
   ]
 
-  active_worker_nodes_by_name = {
-    for name, node in local.worker_nodes_by_name :
-    name => node
-    if !contains(var.exclude_nodes, node.instance_name)
-  }
+  active_nodes         = concat(local.active_control_plane_nodes, local.active_worker_nodes)
+  active_nodes_by_name = { for node in local.active_nodes : node.name => node }
 }
 
 # 8. Preflight Safety Preconditions (Concept 3)
 resource "terraform_data" "preflight" {
   input = {
-    worker_count             = var.worker_count
+    total_node_count         = var.worker_count + var.control_plane_count
     configured_zones         = local.configured_zones
     usable_zones             = local.usable_zones
     zones_with_subnets       = local.zones_with_subnets
@@ -307,7 +353,7 @@ resource "terraform_data" "preflight" {
 
   lifecycle {
     precondition {
-      condition     = var.worker_count == 0 || length(local.zones_with_subnets) > 0
+      condition     = (var.worker_count + var.control_plane_count) == 0 || length(local.zones_with_subnets) > 0
       error_message = "No usable AWS availability zones with subnets remain. Remove entries from blocked_zones or configure more subnets."
     }
 
@@ -317,13 +363,13 @@ resource "terraform_data" "preflight" {
     }
 
     precondition {
-      condition     = alltrue([for name in var.exclude_nodes : contains([for n in local.worker_nodes : n.instance_name], name)])
-      error_message = "exclude_nodes contains invalid AWS instance name(s). Valid names are: ${join(", ", [for n in local.worker_nodes : n.instance_name])}"
+      condition     = alltrue([for name in var.exclude_nodes : contains([for n in local.all_nodes : n.instance_name], name)])
+      error_message = "exclude_nodes contains invalid AWS instance name(s). Valid names are: ${join(", ", [for n in local.all_nodes : n.instance_name])}"
     }
 
     precondition {
-      condition     = alltrue([for name in var.stop_nodes : contains([for n in local.worker_nodes : n.instance_name], name)])
-      error_message = "stop_nodes contains invalid AWS instance name(s). Valid names are: ${join(", ", [for n in local.worker_nodes : n.instance_name])}"
+      condition     = alltrue([for name in var.stop_nodes : contains([for n in local.all_nodes : n.instance_name], name)])
+      error_message = "stop_nodes contains invalid AWS instance name(s). Valid names are: ${join(", ", [for n in local.all_nodes : n.instance_name])}"
     }
 
     precondition {
@@ -335,12 +381,12 @@ resource "terraform_data" "preflight" {
 
 # 9. EC2 Instances
 resource "aws_instance" "this" {
-  for_each = local.active_worker_nodes_by_name
+  for_each = local.active_nodes_by_name
 
   ami                         = local.resolved_ami_id
   instance_type               = each.value.machine_type
   subnet_id                   = each.value.subnet_id
-  key_name                    = aws_key_pair.this.key_name
+  key_name                    = try(aws_key_pair.this[0].key_name, null)
   vpc_security_group_ids      = [aws_security_group.worker.id]
   associate_public_ip_address = true
   source_dest_check           = var.source_dest_check
@@ -363,7 +409,7 @@ resource "aws_instance" "this" {
   tags = merge(var.tags, {
     Name      = each.value.instance_name
     cluster   = var.cluster_name
-    role      = "worker"
+    role      = each.value.role
     node_name = each.value.name
     cloud     = "aws"
   })
@@ -380,7 +426,7 @@ resource "aws_instance" "this" {
 # 10. Secondary EBS Volume (Concept 5: Storage Architecture)
 resource "aws_ebs_volume" "data" {
   for_each = {
-    for name, node in local.active_worker_nodes_by_name :
+    for name, node in local.active_nodes_by_name :
     name => node
     if node.has_secondary_disk
   }
@@ -392,14 +438,14 @@ resource "aws_ebs_volume" "data" {
   tags = merge(var.tags, {
     Name    = "${each.value.instance_name}-data"
     cluster = var.cluster_name
-    role    = "worker"
-    purpose = "worker-storage"
+    role    = each.value.role
+    purpose = "${each.value.role}-storage"
   })
 }
 
 resource "aws_volume_attachment" "data" {
   for_each = {
-    for name, node in local.active_worker_nodes_by_name :
+    for name, node in local.active_nodes_by_name :
     name => node
     if node.has_secondary_disk
   }
@@ -411,7 +457,7 @@ resource "aws_volume_attachment" "data" {
 
 # 11. Static Elastic IPs (Concept 4: Preserving IP across stop/start)
 resource "aws_eip" "this" {
-  for_each = var.allocate_elastic_ips ? local.active_worker_nodes_by_name : {}
+  for_each = var.allocate_elastic_ips ? local.active_nodes_by_name : {}
 
   domain   = "vpc"
   instance = aws_instance.this[each.key].id
@@ -419,7 +465,7 @@ resource "aws_eip" "this" {
   tags = merge(var.tags, {
     Name    = "${each.value.instance_name}-eip"
     cluster = var.cluster_name
-    role    = "worker"
+    role    = each.value.role
   })
 
   depends_on = [aws_instance.this]
@@ -427,7 +473,7 @@ resource "aws_eip" "this" {
 
 # 12. Power State Management (Concept 6: RUNNING vs TERMINATED)
 resource "aws_ec2_instance_state" "this" {
-  for_each = local.active_worker_nodes_by_name
+  for_each = local.active_nodes_by_name
 
   instance_id = aws_instance.this[each.key].id
   state       = contains(var.stop_nodes, each.value.instance_name) || var.desired_status == "TERMINATED" ? "stopped" : "running"

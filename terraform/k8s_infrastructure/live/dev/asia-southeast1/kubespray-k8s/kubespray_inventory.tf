@@ -1,4 +1,9 @@
 locals {
+  all_control_plane_nodes = concat(
+    module.gcp_kubespray_cluster.control_plane_nodes,
+    module.aws_kubespray_workers.control_plane_nodes
+  )
+
   all_worker_nodes = concat(
     module.gcp_kubespray_cluster.worker_nodes,
     module.aws_kubespray_workers.worker_nodes
@@ -7,9 +12,9 @@ locals {
   # When exclude_stopped_nodes_from_inventory is true, filter out stopped nodes
   # so playbooks do not time out attempting SSH connections to powered-off VMs.
   active_inventory_control_planes = var.exclude_stopped_nodes_from_inventory ? [
-    for node in module.gcp_kubespray_cluster.control_plane_nodes : node
+    for node in local.all_control_plane_nodes : node
     if !contains(var.stop_nodes, node.instance_name)
-  ] : module.gcp_kubespray_cluster.control_plane_nodes
+  ] : local.all_control_plane_nodes
 
   active_inventory_workers = var.exclude_stopped_nodes_from_inventory ? [
     for node in local.all_worker_nodes : node

@@ -165,7 +165,7 @@ resource "terraform_data" "preflight" {
 
   lifecycle {
     precondition {
-      condition     = length(local.usable_zones) > 0
+      condition     = (var.control_plane_count + var.worker_count) == 0 || length(local.usable_zones) > 0
       error_message = "No usable GCP zones remain. Remove values from blocked_zones/blocked_regions or add more zones."
     }
 

@@ -3,10 +3,11 @@ project_id = "YOUR_GCP_PROJECT_ID"
 region     = "asia-east1"
 zone       = "asia-east1-a"
 
-# Kubespray cluster size: 3 Control-plane on GCP, 4 Workers on AWS
-control_plane_count = 3
-gcp_worker_count    = 0
-aws_worker_count    = 4
+# Kubespray cluster topology (can configure any combination across GCP and AWS):
+gcp_control_plane_count = 2
+aws_control_plane_count = 1
+gcp_worker_count        = 0
+aws_worker_count        = 4
 
 # AWS Configuration
 aws_region                   = "ap-southeast-1"
