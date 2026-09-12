@@ -1,91 +1,80 @@
 ---
-# Observability Global Variables (Testing Configuration)
+# ==============================================================================
+# Kubernetes Observability & Monitoring - Global Variables
+# ==============================================================================
 
 # Environment
-env_environment: "testing"
+env_environment: "production"
 
-# Network & VIP
-observability_vip: "{{ vip_ip | default('10.146.0.11') }}"
+# Target Namespace
+k8s_monitoring_namespace: "monitoring"
+kubeconfig_path: "/home/seang/.kube/config"
 
-# Domain & HTTPS Settings (Traefik Ingress + Cert-Manager)
-grafana_domain: "grafana.seang.shop"
+# ==============================================================================
+# COMPONENT TOGGLES (Enable / Disable each suitable role)
+# ==============================================================================
+enable_prometheus_stack: true    # Metrics (Prometheus, Alertmanager, Grafana, Node Exporter, kube-state-metrics)
+enable_loki_stack: true          # Logs (Loki + Promtail)
+enable_jaeger: true              # Distributed Tracing (Jaeger all-in-one & query UI)
+enable_opentelemetry: true       # OTel Collector (Universal pipeline for OTLP traces & metrics)
+enable_grafana_dashboards: true  # Curated Dashboards (Cluster, Nodes, Pods, Logs, Traces)
+
+# ==============================================================================
+# INGRESS & DOMAINS (Uses ingress-nginx + Cert-Manager)
+# ==============================================================================
+ingress_class_name: "nginx"
 cert_manager_cluster_issuer: "letsencrypt-prod"
 acme_admin_email: "pengseangsim210@gmail.com"
-ingress_class_name: "traefik"
 
-# Loki S3 Object Storage (MinIO) Settings
-loki_use_s3: true
-loki_s3_endpoint: "csp-minio.nextcloud-prod.svc.cluster.local:9000"
-loki_s3_bucket: "loki-logs"
-loki_s3_access_key: "minioadmin"
-loki_s3_secret_key: "miniopass123"
+# Domains
+grafana_domain: "grafana.seang.shop"
+jaeger_domain: "jaeger.seang.shop"
+alertmanager_domain: "alertmanager.seang.shop"
+prometheus_domain: "prometheus.seang.shop"
 
-# Ports
-ceph_exporter_port: 9283
-node_exporter_port: 9100
-ganesha_exporter_port: 9587
-ha_cluster_exporter_port: 9664
-loki_push_port: 3100
-grafana_web_port: 3000
+# Set true to enable ingress routes for UIs
+enable_ingress: false            # Set true when DNS records point to ingress-nginx controller VIP
+enable_tls: false                # Set true to generate Let's Encrypt TLS certs
 
-# ==========================================
-# KUBERNETES STORAGE CONFIGURATION
-# Set `enabled: true` for the storage option you want to use.
-# (Set `enabled: false` on all other storage options)
-# ==========================================
-k8s_monitoring_namespace: "monitoring"
+# Grafana Admin Credentials
+grafana_admin_user: "admin"
+grafana_admin_password: "PrometheusGrafanaPass2026!"
 
-# ------------------------------------------
-# Prometheus Storage Configuration
-# ------------------------------------------
+# ==============================================================================
+# STORAGE CONFIGURATION (Prometheus & Loki)
+# Longhorn is the default distributed block storage on this cluster.
+# ==============================================================================
+default_storage_class: "longhorn"
+
 prometheus_storage:
-  # Option 1: StorageClass / Dynamic PVC (nfs-client, longhorn, local-path, standard, etc.)
   storage_class:
     enabled: true
-    name: "nfs-client"
-    size: "10Gi"
-
-  # Option 2: HostPath (Direct directory mount on node disk)
-  host_path:
-    enabled: false
-    path: "/var/lib/prometheus-data"
-
-  # Option 3: EmptyDir (Ephemeral node disk storage)
+    name: "{{ default_storage_class }}"
+    size: "15Gi"
   empty_dir:
     enabled: false
+  retention: "15d"
 
-  # Option 4: EmptyDir Memory (Ephemeral RAM-backed storage)
-  empty_dir_memory:
-    enabled: false
-
-  # Metric Retention Period
-  retention: "24h"
-
-# ------------------------------------------
-# Loki Storage Configuration
-# ------------------------------------------
 loki_storage:
-  # Option 1: StorageClass / Dynamic PVC (nfs-client, longhorn, local-path, standard, etc.)
   storage_class:
     enabled: true
-    name: "nfs-client"
-    size: "10Gi"
-
-  # Option 2: HostPath (Direct directory mount on node disk)
-  host_path:
-    enabled: false
-    path: "/var/lib/loki-data"
-
-  # Option 3: EmptyDir (Ephemeral node disk storage)
+    name: "{{ default_storage_class }}"
+    size: "15Gi"
   empty_dir:
     enabled: false
+  retention: "168h"              # 7 days of logs
 
-  # Option 4: EmptyDir Memory (Ephemeral RAM-backed storage)
-  empty_dir_memory:
-    enabled: false
-
-# Legacy fallback compatibility
-k8s_decoupled_storage_class: "{{ prometheus_storage.storage_class.name | default('nfs-client') }}"
-prometheus_storage_size: "{{ prometheus_storage.storage_class.size | default('10Gi') }}"
-loki_storage_size: "{{ loki_storage.storage_class.size | default('10Gi') }}"
-prometheus_retention: "{{ prometheus_storage.retention | default('24h') }}"
+# ==============================================================================
+# PORTS & SERVICE NAMES
+# ==============================================================================
+prometheus_service_port: 9090
+alertmanager_service_port: 9093
+grafana_service_port: 3000
+loki_service_port: 3100
+jaeger_query_port: 16686
+jaeger_otlp_grpc_port: 4317
+jaeger_otlp_http_port: 4318
+otel_grpc_port: 4317
+otel_http_port: 4318
+node_exporter_port: 9100
+kube_state_metrics_port: 8080

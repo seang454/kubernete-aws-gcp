@@ -1,0 +1,25 @@
+---
+# tasks file for jaeger
+
+- name: Deploy Jaeger Tracing Backend and Service
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'jaeger-deployment.yaml.j2') | from_yaml_all | list }}"
+    state: present
+
+- name: Register Jaeger as a Grafana Datasource
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'jaeger-datasource.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Wait for Jaeger Pod to be Ready
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ k8s_monitoring_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/name=jaeger"
+  register: jaeger_pod
+  until: >
+    jaeger_pod.resources | length > 0 and
+    (jaeger_pod.resources[0].status.containerStatuses[0].ready | default(false))
+  retries: 30
+  delay: 5

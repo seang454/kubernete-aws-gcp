@@ -1,0 +1,20 @@
+---
+# tasks file for opentelemetry
+
+- name: Deploy OpenTelemetry Collector Manifests
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'otel-collector.yaml.j2') | from_yaml_all | list }}"
+    state: present
+
+- name: Wait for OpenTelemetry Collector Pod to be Ready
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ k8s_monitoring_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/name=opentelemetry-collector"
+  register: otel_pod
+  until: >
+    otel_pod.resources | length > 0 and
+    (otel_pod.resources[0].status.containerStatuses[0].ready | default(false))
+  retries: 30
+  delay: 5

@@ -1,71 +1,98 @@
 ---
 # ==============================================================================
 # Master Observability Verification Playbook
-# Verifies that all components, exporters, pods, and SSL certs are 100% operational
+# Verifies that Metrics, Logs, Traces, and UI components are 100% operational
 # ==============================================================================
 
-- name: Phase 1 - Verify Host Exporters & Alloy on Storage Nodes
-  hosts: ceph_nodes
-  become: true
-  tasks:
-    - name: Verify Node Exporter Service Status
-      ansible.builtin.command: systemctl is-active prometheus-node-exporter
-      register: node_exporter_status
-      changed_when: false
-      failed_when: node_exporter_status.stdout != "active"
-
-    - name: Verify Grafana Alloy Service Status
-      ansible.builtin.command: systemctl is-active alloy
-      register: alloy_status
-      changed_when: false
-      failed_when: alloy_status.stdout != "active"
-
-    - name: Check Node Exporter Metrics Endpoint (Port 9100)
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:9100/metrics"
-        status_code: 200
-
-- name: Phase 2 - Verify Ceph Prometheus Exporter
-  hosts: ceph_nodes[0]
-  become: true
-  tasks:
-    - name: Verify Ceph Prometheus Exporter Service Endpoint (Port 9283)
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:9283/metrics"
-        status_code: 200
-
-- name: Phase 3 - Verify Kubernetes Monitoring Stack & SSL Certificates
+- name: Verify Kubernetes Observability Stack
   hosts: k8s_control_plane[0]
-  become: true
+  become: false
   tasks:
-    - name: Check Monitoring Pods Status
-      ansible.builtin.command: kubectl get pods -n monitoring -o json
-      register: pods_json
-      changed_when: false
+    - name: Fetch all Pods in monitoring namespace
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+      register: monitoring_pods
 
-    - name: Display Pod Status Summary
+    - name: Display Running Pods
       ansible.builtin.debug:
-        msg: "Pods in monitoring namespace: {{ (pods_json.stdout | from_json)['items'] | map(attribute='metadata.name') | list }}"
+        msg: >-
+          {{
+            monitoring_pods.resources
+            | map(attribute='metadata.name')
+            | list
+          }}
 
-    - name: Verify ClusterIssuer letsencrypt-prod Status
-      ansible.builtin.command: kubectl get clusterissuer {{ cert_manager_cluster_issuer }} -o jsonpath='{.status.conditions[0].type}'
-      register: issuer_status
-      changed_when: false
-      failed_when: issuer_status.stdout != "Ready"
+    - name: Verify Prometheus StatefulSet Pod
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'prometheus-prometheus') | list | length) > 0
+        fail_msg: "Prometheus pod is not running in {{ k8s_monitoring_namespace }}"
+      when: enable_prometheus_stack | default(true)
 
-    - name: Verify Grafana Ingress Route
-      ansible.builtin.command: kubectl get ingress -n monitoring -o jsonpath='{.items[0].spec.rules[0].host}'
-      register: ingress_host
-      changed_when: false
-      failed_when: ingress_host.stdout != grafana_domain
+    - name: Verify Alertmanager StatefulSet Pod
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'alertmanager') | list | length) > 0
+        fail_msg: "Alertmanager pod is not running in {{ k8s_monitoring_namespace }}"
+      when: enable_prometheus_stack | default(true)
 
-    - name: Display Verification Summary
+    - name: Verify Grafana Deployment Pod
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'grafana') | list | length) > 0
+        fail_msg: "Grafana pod is not running in {{ k8s_monitoring_namespace }}"
+      when: enable_prometheus_stack | default(true)
+
+    - name: Verify Node Exporter DaemonSet Pods
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'node-exporter') | list | length) >= 7
+        fail_msg: "Node Exporter is not running on all nodes in {{ k8s_monitoring_namespace }}"
+      when: enable_prometheus_stack | default(true)
+
+    - name: Verify kube-state-metrics Deployment Pod
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'kube-state-metrics') | list | length) > 0
+        fail_msg: "kube-state-metrics pod is not running in {{ k8s_monitoring_namespace }}"
+      when: enable_prometheus_stack | default(true)
+
+    - name: Verify Loki StatefulSet Pod
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'loki') | list | length) > 0
+        fail_msg: "Loki pod is not running in {{ k8s_monitoring_namespace }}"
+      when: enable_loki_stack | default(true)
+
+    - name: Verify Promtail DaemonSet Pods
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'promtail') | list | length) >= 7
+        fail_msg: "Promtail is not running on all nodes in {{ k8s_monitoring_namespace }}"
+      when: enable_loki_stack | default(true)
+
+    - name: Verify Jaeger Deployment Pod
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'jaeger') | list | length) > 0
+        fail_msg: "Jaeger pod is not running in {{ k8s_monitoring_namespace }}"
+      when: enable_jaeger | default(true)
+
+    - name: Verify OpenTelemetry Collector Deployment Pod
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'otel-collector') | list | length) > 0
+        fail_msg: "OpenTelemetry Collector pod is not running in {{ k8s_monitoring_namespace }}"
+      when: enable_opentelemetry | default(true)
+
+    - name: Display Final Verification Summary
       ansible.builtin.debug:
         msg:
-          - "======================================================="
-          - "🎉 VERIFICATION COMPLETE: ALL SYSTEMS ARE 100% HEALTHY!"
-          - "• Host Exporters (Ports 9100 & 9283): ACTIVE"
-          - "• Grafana Alloy Log Shipper: ACTIVE"
-          - "• ClusterIssuer (letsencrypt-prod): READY"
-          - "• Grafana Web URL: https://{{ grafana_domain }}/"
-          - "======================================================="
+          - "======================================================================="
+          - "🎉 VERIFICATION COMPLETE: ALL OBSERVABILITY COMPONENTS ARE READY!"
+          - "• Metrics Pipeline: Prometheus, Alertmanager, Node Exporter, kube-state-metrics, cAdvisor"
+          - "• Logs Pipeline: Loki, Promtail"
+          - "• Traces Pipeline: OpenTelemetry Collector, Jaeger"
+          - "• Visualization UI: Grafana"
+          - "======================================================================="

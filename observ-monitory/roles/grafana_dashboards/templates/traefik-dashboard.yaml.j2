@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-ingress-dashboard
+  namespace: {{ k8s_monitoring_namespace }}
+  labels:
+    grafana_dashboard: "1"
+data:
+  traefik.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "title": "Traefik Ingress Overview",
+      "tags": ["traefik", "ingress"],
+      "panels": [
+        {
+          "title": "Total HTTP Requests Rate",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [{"expr": "sum(rate(traefik_entrypoint_requests_total[5m])) or vector(0)", "legendFormat": "Requests/sec"}]
+        },
+        {
+          "title": "Response Status Codes (2xx, 4xx, 5xx)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {"expr": "sum(rate(traefik_entrypoint_requests_total{code=~\"2..\"}[5m])) or vector(0)", "legendFormat": "2xx Success"},
+            {"expr": "sum(rate(traefik_entrypoint_requests_total{code=~\"4..\"}[5m])) or vector(0)", "legendFormat": "4xx Client Error"},
+            {"expr": "sum(rate(traefik_entrypoint_requests_total{code=~\"5..\"}[5m])) or vector(0)", "legendFormat": "5xx Server Error"}
+          ]
+        }
+      ],
+      "schemaVersion": 38
+    }

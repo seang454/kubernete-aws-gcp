@@ -1,0 +1,30 @@
+---
+# tasks file for grafana_dashboards
+
+- name: Deploy Loki Log Engine Dashboard ConfigMap
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'loki-dashboard.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Deploy Ingress Dashboard ConfigMap
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'traefik-dashboard.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Deploy Ceph Cluster Dashboard ConfigMap
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'ceph-dashboard.yaml.j2') | from_yaml }}"
+    state: present
+  when: enable_ceph_dashboard | default(false)
+
+- name: Deploy NFS-Ganesha Dashboard ConfigMap
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'ganesha-dashboard.yaml.j2') | from_yaml }}"
+    state: present
+  when: enable_ganesha_dashboard | default(false)
+
+- name: Deploy MinIO S3 Storage Dashboard ConfigMap
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'minio-dashboard.yaml.j2') | from_yaml }}"
+    state: present
+  when: enable_minio_dashboard | default(false)

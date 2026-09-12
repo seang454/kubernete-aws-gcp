@@ -1,26 +1,18 @@
 ---
 # ==============================================================================
-# Master Observability & Monitoring Ansible Playbook
-# HA Ceph + NFS-Ganesha + Kubernetes Infrastructure
+# Master Observability & Monitoring Deployment Playbook
+# Installs Metrics, Logs, Traces, and Dashboards on Kubernetes
 # ==============================================================================
 
-- name: Phase 1 - Enable Ceph Exporters on Primary Ceph Manager Node
-  hosts: ceph_nodes[0]
-  become: true
-  roles:
-    - ceph_observability
-
-- name: Phase 2 - Install Host Exporters & Grafana Alloy on HA Storage Nodes
-  hosts: ceph_nodes
-  become: true
-  roles:
-    - host_observability
-
-- name: Phase 3 - Deploy Prometheus & Loki Stack on Kubernetes
+- name: Deploy Kubernetes Observability Stack
   hosts: k8s_control_plane[0]
-  become: true
+  become: false
   roles:
-    - k8s_observability
+    - { role: prometheus_stack, when: enable_prometheus_stack | default(true) }
+    - { role: loki_stack, when: enable_loki_stack | default(true) }
+    - { role: jaeger, when: enable_jaeger | default(true) }
+    - { role: opentelemetry, when: enable_opentelemetry | default(true) }
+    - { role: grafana_dashboards, when: enable_grafana_dashboards | default(true) }
 
-- name: Phase 4 - Automatically Verify All Services & Health
+- name: Automatically Verify All Services & Health
   import_playbook: verify.yml

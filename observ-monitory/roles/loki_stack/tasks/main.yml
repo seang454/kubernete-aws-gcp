@@ -1,0 +1,42 @@
+---
+# tasks file for loki_stack
+
+- name: Add grafana Helm Repository
+  kubernetes.core.helm_repository:
+    name: grafana
+    repo_url: https://grafana.github.io/helm-charts
+
+- name: Render Loki Values File
+  ansible.builtin.template:
+    src: loki-values.yaml.j2
+    dest: /tmp/loki-values.yaml
+    mode: "0644"
+
+- name: Deploy loki-stack via Helm
+  kubernetes.core.helm:
+    name: loki
+    chart_ref: grafana/loki-stack
+    release_namespace: "{{ k8s_monitoring_namespace }}"
+    values_files:
+      - /tmp/loki-values.yaml
+    state: present
+    wait: true
+    timeout: "600s"
+
+- name: Register Loki as a Grafana Datasource
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'loki-datasource.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Wait for Loki Pod to be Ready
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ k8s_monitoring_namespace }}"
+    label_selectors:
+      - "app=loki"
+  register: loki_pod
+  until: >
+    loki_pod.resources | length > 0 and
+    (loki_pod.resources[0].status.containerStatuses[0].ready | default(false))
+  retries: 30
+  delay: 10

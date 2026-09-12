@@ -1,0 +1,33 @@
+# ==============================================================================
+# loki-stack Helm Values Template
+# ==============================================================================
+
+loki:
+  enabled: true
+  isDefault: false
+  persistence:
+{% if loki_storage.storage_class.enabled | default(true) %}
+    enabled: true
+    storageClassName: "{{ loki_storage.storage_class.name | default('longhorn') }}"
+    size: "{{ loki_storage.storage_class.size | default('15Gi') }}"
+{% else %}
+    enabled: false
+{% endif %}
+  config:
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: "{{ loki_storage.retention | default('168h') }}"
+
+promtail:
+  enabled: true
+  config:
+    lokiAddress: http://loki:3100/loki/api/v1/push
+
+fluent-bit:
+  enabled: false
+
+grafana:
+  enabled: false  # We use Grafana deployed from kube-prometheus-stack
+
+prometheus:
+  enabled: false

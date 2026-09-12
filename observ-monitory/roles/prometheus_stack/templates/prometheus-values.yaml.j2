@@ -1,0 +1,97 @@
+# ==============================================================================
+# kube-prometheus-stack Helm Values Template
+# ==============================================================================
+
+# Global settings
+global:
+  rbac:
+    create: true
+
+# Prometheus Operator Controller
+prometheusOperator:
+  enabled: true
+
+# Prometheus Instance (StatefulSet)
+prometheus:
+  enabled: true
+  prometheusSpec:
+    retention: "{{ prometheus_storage.retention | default('15d') }}"
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    enableAdminAPI: true
+{% if prometheus_storage.storage_class.enabled | default(true) %}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "{{ prometheus_storage.storage_class.name | default('longhorn') }}"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: "{{ prometheus_storage.storage_class.size | default('15Gi') }}"
+{% else %}
+    storageSpec:
+      emptyDir: {}
+{% endif %}
+
+# Alertmanager (StatefulSet)
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    retention: "120h"
+
+# Grafana Core UI (Deployment)
+grafana:
+  enabled: true
+  adminUser: "{{ grafana_admin_user | default('admin') }}"
+  adminPassword: "{{ grafana_admin_password | default('PrometheusGrafanaPass2026!') }}"
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+      label: grafana_datasource
+      labelValue: "1"
+      searchNamespace: ALL
+{% if enable_ingress | default(false) %}
+  ingress:
+    enabled: true
+    ingressClassName: "{{ ingress_class_name | default('nginx') }}"
+    hosts:
+      - "{{ grafana_domain }}"
+{% if enable_tls | default(false) %}
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - "{{ grafana_domain }}"
+{% endif %}
+{% endif %}
+
+# Node Exporter (DaemonSet on every VM node)
+nodeExporter:
+  enabled: true
+  operatingSystems:
+    linux:
+      enabled: true
+
+# kube-state-metrics (Deployment polling Kubernetes API)
+kubeStateMetrics:
+  enabled: true
+
+# cAdvisor & kubelet scraping
+kubelet:
+  enabled: true
+  serviceMonitor:
+    cAdvisor: true
+    resource: true
+
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeProxy:
+  enabled: false
