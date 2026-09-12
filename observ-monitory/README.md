@@ -1,6 +1,6 @@
 # 📊 Production Observability Ansible Project (`observ-monitory`)
 
-This Ansible project automates the deployment, verification, and teardown of the end-to-end monitoring architecture defined in the [Observability Architecture Guide](file:///home/seang/nfs-cluster/observ-monitory/observability-architecture-guide.md) for **HA Ceph + NFS-Ganesha + Kubernetes Storage Infrastructure**.
+This Ansible project automates the deployment, verification, and teardown of the end-to-end monitoring architecture defined in the [Observability Architecture Guide](./observability-architecture-guide.md) for **Kubernetes Infrastructure**.
 
 ---
 

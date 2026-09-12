@@ -1,263 +1,139 @@
-# 🏗️ Production-Ready Observability & Monitoring Architecture Guide
-## HA Ceph + NFS-Ganesha + Kubernetes Storage Infrastructure
+# 🔭 Kubernetes Observability & Monitoring Architecture Guide
 
-This guide defines the end-to-end production observability architecture combining **Prometheus**, **Grafana**, **Grafana Loki**, **Grafana Alloy**, and **OpenTelemetry** for the **HA Ceph + NFS-Ganesha + Kubernetes Storage Infrastructure**.
+This guide documents the end-to-end observability and monitoring stack for Kubernetes, covering the **Three Pillars of Observability**:
+1. **Metrics** *(Numbers over time: "How much CPU? How many requests?")*
+2. **Logs** *(Text events: "Why did it fail? What error message was printed?")*
+3. **Traces** *(Request journeys: "Where is the bottleneck across microservices?")*
 
 ---
 
-## 📐 Unified System Architecture Diagram
+## 1. High-Level Architecture Diagram
 
-```text
-========================================================================================================================
-                                          📊 VISUALIZATION & ALERTING LAYER
-========================================================================================================================
-                                            ┌─────────────────────────────┐
-                                            │  📊 GRAFANA WEB DASHBOARD   │
-                                            │    (Single Unified Pane)    │
-                                            └──────────────┬──────────────┘
-                                                           │ (PromQL / LogQL Queries)
-                           ┌───────────────────────────────┴───────────────────────────────┐
-                           ▼                                                               ▼
-            ┌─────────────────────────────┐                                 ┌─────────────────────────────┐
-            │ 📈 PROMETHEUS SERVER (HA)   │                                 │ 📜 GRAFANA LOKI LOG ENGINE  │
-            │ (Local Storage / Decoupled) │                                 │ (Local Storage / Object DB) │
-            └──────────────▲──────────────┘                                 └──────────────▲──────────────┘
-                           │                                                               │
-                           │ (Scrape / Remote Write)                                       │ (Loki HTTP Push / OTLP)
-===========================│===============================================================│============================
-                           │                      🛰️ TELEMETRY COLLECTION LAYER             │
-===========================│===============================================================│============================
-                           │                                                ┌──────────────┴──────────────┐
-                           │                                                │ 🚀 GRAFANA ALLOY AGENT      │
-                           │                                                │ (K8s DaemonSet & Host Svc)  │
-                           │                                                └──────────────▲──────────────┘
-                           │                                                               │
-      ┌────────────────────┴────────────────────┐                           ┌──────────────┴──────────────┐
-      │ • ceph-mgr-prometheus (Port 9283)       │                           │ • OTLP Ports 4317/4318      │
-      │ • node_exporter (Port 9100)             │                           │ • Ganesha Multiline Logs    │
-      │ • ganesha_exporter (Port 9587)          │                           │ • Journald & K8s Stdout     │
-      │ • ha_cluster_exporter (Port 9664)       │                           └──────────────▲──────────────┘
-      │ • kube-state-metrics (Port 8080)        │                                          │
-      └────────────────────▲────────────────────┘                                          │
-                           │                                                               │
-===========================│===============================================================│============================
-                           │                 💾 INFRASTRUCTURE & APPLICATION WORKLOADS     │
-===========================│===============================================================│============================
-   [ 📦 HA Ceph + NFS Storage Host Nodes ]                           [ ☸️ K8s Worker Nodes & App Workloads ]
-   • haproxy-1 (10.140.0.2)                                         • k8s-worker-1 .. 5
-   • haproxy-2 (10.140.0.3)                                         • 🔌 App Pods with OpenTelemetry SDK
-   • haproxy-3 (10.140.0.4)                                           (Emitting OTLP metrics/logs to Alloy)
-   • VIP: 10.140.0.5 (Pacemaker Managed)
-========================================================================================================================
+```mermaid
+flowchart TD
+    subgraph Sources["1. DATA SOURCES & AGENTS (Inside Kubernetes Cluster)"]
+        nodeExp["Node Exporter<br><i>(Host OS CPU, Disk, RAM, Network)</i>"]
+        cadvisor["cAdvisor<br><i>(Container CPU & Memory)</i>"]
+        ksm["kube-state-metrics<br><i>(Pod status, Deployments, Replicas)</i>"]
+        appLogs["Application Logs<br><i>(stdout / stderr in /var/log/pods)</i>"]
+        appTraces["Microservice Apps<br><i>(Instrumented with OpenTelemetry SDK)</i>"]
+    end
+
+    subgraph Collection["2. TELEMETRY COLLECTION & ROUTING"]
+        otel["OpenTelemetry Collector<br><i>(Universal pipeline for Metrics, Logs, Traces)</i>"]
+        promtail["Promtail / Fluent Bit / Alloy<br><i>(Log shipper)</i>"]
+    end
+
+    subgraph Storage["3. STORAGE & ANALYSIS ENGINES"]
+        prom["Prometheus<br><i>(Time-Series Metrics DB)</i>"]
+        loki["Grafana Loki<br><i>(Lightweight Log DB)</i>"]
+        elastic["Elasticsearch<br><i>(Full-Text Log Search)</i>"]
+        jaeger["Jaeger<br><i>(Distributed Traces DB)</i>"]
+    end
+
+    subgraph Actions["4. ALERTING & VISUALIZATION"]
+        alertmgr["Alertmanager<br><i>(Routing, de-duplication)</i>"]
+        grafana["Grafana<br><i>(Unified UI for Metrics, Logs & Traces)</i>"]
+        kibana["Kibana<br><i>(Elasticsearch Search UI)</i>"]
+        notifications["Slack / Email / PagerDuty"]
+    end
+
+    %% Metrics Flow
+    nodeExp -->|Scraped by HTTP /metrics| prom
+    cadvisor -->|Scraped by HTTP /metrics| prom
+    ksm -->|Scraped by HTTP /metrics| prom
+    otel -.->|Can push metrics to| prom
+
+    %% Logs Flow
+    appLogs -->|Reads log files| promtail
+    promtail -->|Ships logs| loki
+    appLogs -.->|Alternative: Beats/Fluentd| elastic
+
+    %% Traces Flow
+    appTraces -->|Sends spans via OTLP| otel
+    otel -->|Exports traces| jaeger
+
+    %% Alerting Flow
+    prom -->|Evaluates alert rules| alertmgr
+    alertmgr -->|Sends notifications| notifications
+
+    %% Visualization Flow
+    prom -->|PromQL Queries| grafana
+    loki -->|LogQL Queries| grafana
+    jaeger -->|Trace Queries| grafana
+    elastic -->|Search Queries| kibana
 ```
 
 ---
 
-## 🛡️ Production-Ready Critical Architecture Principles
+## 2. The Three Pipelines in Detail
 
-### 1. Decoupled Monitoring Storage (Avoiding Circular Storage Deadlock)
-> [!CAUTION]
-> **Never store Prometheus TSDB metrics or Loki log indices on the NFS volume being monitored!**
-> If the HA Ceph/NFS storage cluster experiences a crash or latency freeze, any monitoring database running on that NFS share will also lock up and crash. This leaves operators blind during an outage.
-> **Solution**: Use local storage (`local-path-provisioner` or NVMe `hostPath`) or remote S3/Ceph RGW object storage for Prometheus and Loki data.
-
-### 2. Dedicated Storage Gateway & HA Exporters
-* Standard `node_exporter` only captures kernel OS metrics (CPU, RAM, general disk bytes).
-* Production monitoring requires:
-  * **`ganesha_exporter` (Port 9587)**: Exposes NFSv4 IOPS, RPC latencies (`READ`, `WRITE`, `GETATTR`), active client mounts, and FSAL queue depth.
-  * **`ha_cluster_exporter` (Port 9664)**: Exposes Pacemaker/Corosync cluster quorum state, Virtual IP active host location, and failover event counts.
-
-### 3. Structured Grafana Alloy Log Parsing
-* Tailing `/var/log/ganesha/ganesha.log` raw produces unstructured string logs in Loki.
-* Grafana Alloy must be configured with multiline aggregation and regex parsing stages for Ganesha log severities (`NIV_WARN`, `NIV_CRIT`, `NIV_EVENT`) and Ceph FSAL error tags.
+### Pipeline A: Metrics (Prometheus + Exporters)
+* **Objective:** Answer *"Is the infrastructure healthy, and are resources running out?"*
+* **Workflow:**
+  1. **Node Exporter** runs as a `DaemonSet` on every cluster node, reading raw Linux kernel metrics (`/proc`, `/sys`) on port `9100`.
+  2. **cAdvisor** runs built into the `kubelet` process on each node, tracking container cgroup resource consumption on port `10250`.
+  3. **kube-state-metrics** listens to the Kubernetes API server, converting high-level Kubernetes objects (Pods, Deployments, StatefulSets, Nodes) into numerical metrics on port `8080`.
+  4. **Prometheus** periodically scrapes these targets via HTTP every 15–30 seconds, storing them in its local time-series database (TSDB).
+  5. If an alert condition evaluates to true (e.g., node disk space > 85%), Prometheus triggers an alert to **Alertmanager**.
+  6. **Alertmanager** deduplicates, groups, and routes the alert to channels like **Slack**, **PagerDuty**, or **Email**.
+  7. Engineers inspect metrics dashboards and graphs in **Grafana** using PromQL.
 
 ---
 
-## 🧱 Component Breakdown & Architecture Roles
-
-### 1. Visualization & Alerting Layer
-* **Grafana (Central Dashboard)**: Single-pane-of-glass interface visualizing Ceph health, NFS IOPS, host performance, and log streams.
-* **Alertmanager**: Evaluates threshold rules and routes alerts via Slack, PagerDuty, or Email when storage degradations or failovers occur.
-
-### 2. Central Data Storage Layer (Decoupled)
-* **Prometheus Server**: High-availability time-series database storing metrics scraped from storage host exporters and Kubernetes components.
-* **Grafana Loki**: Log indexing engine storing and parsing logs from systemd, NFS-Ganesha, Ceph daemons, and K8s container pods.
-
-### 3. Telemetry Collection & Agent Layer
-* **Grafana Alloy (Host & K8s DaemonSet)**: OpenTelemetry-native unified collector agent. Ships host system logs (`/var/log/ganesha/ganesha.log`, `journald`) and container stdout/stderr to Loki.
-* **Ceph Prometheus Plugin (`ceph-mgr-prometheus`)**: Native Ceph module exporting OSD latency, PG status, pool bytes, and cluster health directly on port 9283.
-* **Node Exporter (Port 9100)**: Host metrics agent capturing OS CPU, memory, disk SMART health, and network interfaces.
-* **Ganesha Exporter (Port 9587)**: Captures NFSv4 protocol IOPS, latency, and client connection counts.
-* **HA Cluster Exporter (Port 9664)**: Captures Pacemaker/Corosync quorum and Virtual IP location.
-* **Kube-State-Metrics (Port 8080)**: Exposes Kubernetes storage object metrics (PVC requested vs consumed, PV binding status).
+### Pipeline B: Logs (Loki vs. Elasticsearch)
+* **Objective:** Answer *"Why did an application crash? What error trace was output?"*
+* **Workflow:**
+  1. Containerized applications write log events to standard output (`stdout`) and standard error (`stderr`).
+  2. The container runtime (e.g., `containerd`) writes these streams to host files under `/var/log/pods/`.
+  3. A log agent (**Promtail**, **Grafana Alloy**, or **Fluent Bit**) tails these log files, appends Kubernetes metadata (namespace, pod name, container name), and streams them out.
+  4. **Storage Options:**
+     * **Grafana Loki (Cloud-Native / LGTM Stack):** Indexes only the metadata labels rather than full text. This keeps storage lightweight, fast, and cost-effective. Logs are queried via **LogQL** inside **Grafana**.
+     * **Elasticsearch (ELK / EFK Stack):** Full-text indexes every word in the log stream using Lucene. Provides deep search capabilities at the expense of higher CPU/RAM usage. Searched and analyzed via **Kibana**.
 
 ---
 
-## 📊 Telemetry Data Flow Matrix
+### Pipeline C: Distributed Traces (OpenTelemetry + Jaeger)
+* **Objective:** Answer *"A user clicked submit and it took 4 seconds. Which microservice or database query caused the delay?"*
+* **Workflow:**
+  1. Microservice code is instrumented with the **OpenTelemetry (OTel) SDK**.
+  2. As incoming HTTP/gRPC requests travel across services (`Frontend` ➔ `Auth` ➔ `Order API` ➔ `Database`), a unique `TraceID` and child `SpanID` headers are injected and propagated.
+  3. The microservices send spans via OTLP (OpenTelemetry Protocol, gRPC port `4317` / HTTP port `4318`) to the **OpenTelemetry Collector**.
+  4. The Collector batches, filters, and forwards the trace data to **Jaeger**.
+  5. Engineers view the trace waterfall diagram in **Grafana** or the Jaeger UI to see exact millisecond latencies for each downstream hop.
 
-| Source Component | Data Type | Collector Agent | Target Backend | Primary Metric / Log Key |
+---
+
+## 3. Comprehensive Tool Matrix
+
+| Tool | Category | Primary Focus | Default Port | What You Monitor |
 | :--- | :--- | :--- | :--- | :--- |
-| **Ceph Storage Cluster** | Metrics | `ceph-mgr-prometheus` | Prometheus | `ceph_pool_bytes_used`, `ceph_osd_up`, `ceph_health_status` |
-| **NFS-Ganesha Server** | Gateway Metrics | `ganesha_exporter` | Prometheus | `ganesha_nfs_stats_read_bytes`, `ganesha_nfs_stats_write_latency` |
-| **Pacemaker / Corosync** | HA Status | `ha_cluster_exporter` | Prometheus | `pacemaker_failcount`, `pacemaker_location`, `corosync_quorate` |
-| **Linux Host OS** | Host Metrics | `node_exporter` | Prometheus | `node_filesystem_free_bytes`, `node_disk_io_time_seconds_total` |
-| **NFS-Ganesha Daemon** | Logs | Grafana Alloy (Host Svc) | Grafana Loki | `/var/log/ganesha/ganesha.log` (`NIV_CRIT`, `FSAL_CEPH`) |
-| **Kubernetes PVCs** | Storage Metrics | `kube-state-metrics` | Prometheus | `kubelet_volume_stats_used_bytes`, `kube_persistentvolumeclaim_status_phase` |
-| **App Pods (K8s)** | Telemetry | OpenTelemetry SDK | Grafana Alloy | Container stdout/stderr & OTLP metrics |
+| **Node Exporter** | Host Agent | Host OS Metrics | `9100` | CPU utilization, RAM usage, disk I/O, network bandwidth, filesystem health. |
+| **cAdvisor** | Container Agent | Container Metrics | `10250` (via kubelet) | Per-container CPU limit throttling, memory RSS/working set, container restarts. |
+| **kube-state-metrics** | Cluster Agent | K8s Object State | `8080` | Pod statuses (CrashLoopBackOff, Pending), Deployment replica counts, PVC binding. |
+| **OpenTelemetry** | Framework & Pipeline | Telemetry Collection | `4317` (gRPC), `4318` (HTTP) | Universal collector and router for metrics, logs, and distributed traces. |
+| **Prometheus** | Time-Series DB | Metrics Storage & Alert Rules | `9090` | Evaluates PromQL queries, stores time-series metrics, evaluates alert triggers. |
+| **Alertmanager** | Alert Engine | Alert Routing & Silencing | `9093` | Deduplicates alerts, manages silence windows, notifies Slack/Teams/PagerDuty/Email. |
+| **Loki** | Log Storage | Lightweight Log Storage | `3100` | Application stdout/stderr logs indexed by Kubernetes labels. |
+| **Elasticsearch** | Search / Log DB | Full-Text Log Analytics | `9200` | Deep indexing, complex search aggregations, structured application log queries. |
+| **Jaeger** | Trace Storage | Distributed Traces | `16686` (UI), `4317` (OTLP) | Microservice call trees, request latency waterfalls, service dependency graphs. |
+| **Grafana** | Unified Dashboard | Visualization UI | `3000` | Single pane of glass dashboard combining Prometheus, Loki, and Jaeger. |
+| **Kibana** | Analytics UI | Elasticsearch Dashboard | `5601` | Dedicated search UI and visualization interface for Elasticsearch clusters. |
 
 ---
 
-## 🚨 Production Threshold & Alerting Rules
+## 4. How the Two Primary Stacks Compare
 
-| Alert Rule Name | Condition | Severity | Description | Action Required |
-| :--- | :--- | :--- | :--- | :--- |
-| `CephPoolNearFull` | Pool storage > 80% | ⚠️ Warning | Storage pool reaching capacity limit. | Add new OSD disk or clean unused files. |
-| `CephPoolCritical` | Pool storage > 90% | 🚨 Critical | High risk of Ceph read-only freeze. | Immediate expansion or deletion of old snapshots. |
-| `NFSGaneshaDown` | Ganesha process inactive | 🚨 Critical | NFS service crashed on active gateway node. | Pacemaker failover check / restart service. |
-| `NFSGaneshaHighLatency` | `ganesha_nfs_stats_write_latency > 500ms` | ⚠️ Warning | NFS write latency is abnormally high. | Inspect Ceph OSD disk queue & pool IOPS. |
-| `PacemakerQuorumLost` | `corosync_quorate == 0` | 🚨 Critical | Pacemaker cluster lost quorum. | Inspect network pings on UDP 5404/5405 across HA storage nodes. |
-| `PacemakerVIPSwitched` | `changes(pacemaker_location{resource="VIP"}[5m]) > 0` | ℹ️ Info / Warn | Virtual IP `10.140.0.5` failed over. | Check `/var/log/messages` on `haproxy-1` to diagnose root cause. |
-| `CephOSDDown` | `ceph_osd_up == 0` | 🚨 Critical | One or more storage physical drives offline. | Inspect host disk `/dev/sdb` & replace drive. |
-| `CephPGDegraded` | `ceph_pg_degraded > 0` | ⚠️ Warning | Placement groups are degraded/under-replicated. | Check OSD drive status and cluster connectivity. |
-| `K8sPVCFull` | PVC usage > 85% | ⚠️ Warning | Pod volume filling up. | Expand PVC size in K8s StorageClass. |
+### 1. The Modern Cloud-Native Stack (LGTM Stack)
+* **Components:** **L**oki (Logs), **G**rafana (UI), **T**empo / Jaeger (Traces), **M**IMIR / Prometheus (Metrics).
+* **Advantages:**
+  * Consistent label model: A single label set (e.g., `namespace=dev, pod=order-api-xxx`) links metrics directly to logs and traces inside Grafana.
+  * Low resource footprint (especially Loki vs. Elasticsearch).
+  * Industry standard for Kubernetes.
 
----
-
-## 🗺️ Deployment Placement & Justification Map
-
-```text
-========================================================================================================================
-📍 LOCATION 1: HA STORAGE HOST NODES (`haproxy-1`, `haproxy-2`, `haproxy-3`)
-👉 WHY HERE? Ceph, NFS-Ganesha, Pacemaker, and raw hard drives (/dev/sdb) run directly on the host Linux OS.
-========================================================================================================================
-  1. 🟢 ceph-mgr-prometheus  ──► Ceph Manager Module (Port 9283)
-                                  └─► WHY: Reads Ceph OSD health, IOPS & pool space directly from Ceph daemon.
-  2. 🟢 node_exporter        ──► Linux Host OS Systemd Service (Port 9100)
-                                  └─► WHY: Reads physical host CPU, RAM, network & disk SMART health.
-  3. 🟢 ganesha_exporter     ──► Linux Host OS Systemd Service (Port 9587)
-                                  └─► WHY: Measures NFSv4 IOPS, RPC latencies & active client mount counts.
-  4. 🟢 ha_cluster_exporter  ──► Linux Host OS Systemd Service (Port 9664)
-                                  └─► WHY: Measures Pacemaker/Corosync quorum state and VIP node location.
-  5. 🚀 Grafana Alloy (Host) ──► Linux Host OS Systemd Service
-                                  └─► WHY: Tails `/var/log/ganesha/ganesha.log` and journald log streams.
-
-========================================================================================================================
-📍 LOCATION 2: KUBERNETES CLUSTER (Namespace: `monitoring`)
-👉 WHY HERE? K8s provides automated container management, high availability, and single-URL ingress for dashboards.
-========================================================================================================================
-  6. 📈 Prometheus Server    ──► K8s StatefulSet (Stores metrics on LOCAL Storage - local-path)
-                                  └─► WHY: Decoupled local storage ensures monitoring survives storage cluster outages.
-  7. 📜 Grafana Loki         ──► K8s StatefulSet (Stores logs on LOCAL Storage or S3/RGW Object DB)
-                                  └─► WHY: Decoupled persistent log engine protected against NFS lockups.
-  8. 📊 Grafana Web UI       ──► K8s Deployment (Exposed via Ingress/NodePort on Port 3000)
-                                  └─► WHY: Unified web dashboard accessible to all DevOps & developer teams.
-  9. 🚀 Grafana Alloy (K8s)  ──► K8s DaemonSet (Runs 1 pod on every node for OTLP & container logs)
-                                  └─► WHY: K8s container stdout logs (/var/log/pods) exist on worker node hosts.
- 10. ⚙️ Kube-State-Metrics   ──► K8s Deployment
-                                  └─► WHY: Queries the Kubernetes API directly for PVC, PV, and Pod statuses.
-
-========================================================================================================================
-📍 LOCATION 3: INSIDE APPLICATION SOURCE CODE (K8s App Pods)
-👉 WHY HERE? Application performance (file write speed to NFS, API latency, custom app errors) is captured in-process.
-========================================================================================================================
- 11. 🔌 OpenTelemetry SDK    ──► Library inside App Code (Spring Boot / Node.js / Python)
-                                  └─► WHY: Emits custom application OTLP metrics and logs over ports 4317/4318.
-========================================================================================================================
-```
-
----
-
-## 📋 Placement Matrix & Architectural Rationale
-
-| Tool | Where to Deploy | Installation Method | Why It MUST Be Installed There |
-| :--- | :--- | :--- | :--- |
-| **`ceph-mgr-prometheus`** | HA Storage Nodes (`haproxy-1..3`) | CLI: `ceph mgr module enable prometheus` | Only the Ceph Manager daemon has direct access to internal Ceph OSD and pool stats. |
-| **`node_exporter`** | HA Storage Nodes (`haproxy-1..3`) | Linux `systemd` service | Captures bare-metal/VM kernel metrics, disk SMART health, and `/var/log` filesystem capacity. |
-| **`ganesha_exporter`** | HA Storage Nodes (`haproxy-1..3`) | Linux `systemd` service | Captures NFS-Ganesha protocol metrics (NFS IOPS, RPC latencies, active mounts). |
-| **`ha_cluster_exporter`** | HA Storage Nodes (`haproxy-1..3`) | Linux `systemd` service | Measures Pacemaker/Corosync HA cluster status, quorum health, and VIP location. |
-| **Grafana Alloy (Host)** | HA Storage Nodes (`haproxy-1..3`) | Linux package as `systemd` service | Tails host logs (`/var/log/ganesha/ganesha.log` & journald) directly from the OS filesystem. |
-| **Prometheus Server** | Kubernetes Cluster (`monitoring`) | Helm: `kube-prometheus-stack` | Runs in K8s using **local storage** (`storageClassName: local-path`) to decouple from NFS outages. |
-| **Grafana Loki** | Kubernetes Cluster (`monitoring`) | Helm: `loki-stack` | Runs in K8s using **local storage** or S3/RGW object storage to remain independent of NFS. |
-| **Grafana Web UI** | Kubernetes Cluster (`monitoring`) | Helm: `kube-prometheus-stack` | Exposed via K8s Ingress/NodePort (`http://<K8S_IP>:3000`) for central UI access. |
-| **Grafana Alloy (K8s)** | Kubernetes Worker Nodes (All 5) | K8s DaemonSet (via Helm) | Tails container log files (`/var/log/pods`) directly on worker node hosts. |
-| **OpenTelemetry SDK** | Inside App Code (K8s Pods) | App dependency (`npm`, `pip`, `maven`) | Captures inside-app timers (e.g. NFS write performance from within application code). |
-
----
-
-## 🚀 Complete Step-by-Step Execution Commands
-
-### 1. On Ceph Manager Nodes (`haproxy-1`):
-```bash
-# Enable native Ceph Prometheus exporter (Exposes metrics on port 9283)
-sudo ceph mgr module enable prometheus
-
-# Verify Ceph exporter service
-sudo ceph mgr services
-```
-
-### 2. On HA Storage Host Nodes (`haproxy-1`, `haproxy-2`, `haproxy-3`):
-```bash
-# 1. Install node_exporter for OS hardware metrics (Port 9100)
-sudo apt-get update && sudo apt-get install -y prometheus-node-exporter
-
-# 2. Install Grafana Alloy for host NFS/Ceph logs
-wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/grafana.gpg > /dev/null
-echo "deb https://apt.grafana.com stable main" | sudo tee /etc/apt/sources.list.d/grafana.list
-sudo apt-get update && sudo apt-get install -y alloy
-sudo systemctl enable --now alloy
-
-# 3. Configure Alloy log pipeline (/etc/alloy/config.alloy)
-sudo cat << 'EOF' > /etc/alloy/config.alloy
-loki.relabel "ganesha_logs" {
-  forward_to = [loki.write.local_loki.receiver]
-  rule {
-    target_label = "job"
-    replacement  = "nfs-ganesha"
-  }
-  rule {
-    target_label = "host"
-    replacement  = constants.hostname
-  }
-}
-
-loki.source.file "ganesha_file" {
-  targets = [
-    { "__path__" = "/var/log/ganesha/ganesha.log" },
-  ]
-  forward_to = [loki.relabel.ganesha_logs.receiver]
-}
-
-loki.write "local_loki" {
-  endpoint {
-    url = "http://10.140.0.5:3100/loki/api/v1/push"
-  }
-}
-EOF
-
-sudo systemctl restart alloy
-```
-
-### 3. On Kubernetes Master Node (`k8s-master-1`):
-```bash
-# 1. Create monitoring namespace
-kubectl create namespace monitoring
-
-# 2. Add Helm repositories
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo update
-
-# 3. Deploy Prometheus + Grafana Stack (Using LOCAL Storage to decouple from NFS outages)
-helm install prometheus prometheus-community/kube-prometheus-stack \
-  --namespace monitoring \
-  --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName=local-path \
-  --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=50Gi
-
-# 4. Deploy Loki + Alloy Log Stack (Using LOCAL Storage to decouple from NFS outages)
-helm install loki grafana/loki-stack \
-  --namespace monitoring \
-  --set loki.persistence.enabled=true \
-  --set loki.persistence.storageClassName=local-path \
-  --set loki.persistence.size=50Gi \
-  --set alloy.enabled=true
-```
+### 2. The Classic ELK / EFK Stack
+* **Components:** **E**lasticsearch, **L**ogstash / Fluentd, **K**ibana.
+* **Advantages:**
+  * Rich, full-text free-form search capabilities.
+  * Mature enterprise security, machine learning anomaly detection, and SIEM features.
+  * Higher storage and memory requirements due to inverted indices.
