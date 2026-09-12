@@ -7,61 +7,92 @@ This guide documents the end-to-end observability and monitoring stack for Kuber
 
 ---
 
-## 1. High-Level Architecture Diagram
+## 1. High-Level Master Architecture Diagram
 
 ```mermaid
 flowchart TD
     subgraph Sources["1. DATA SOURCES & AGENTS (Inside Kubernetes Cluster)"]
         nodeExp["Node Exporter<br><i>(Host OS CPU, Disk, RAM, Network)</i>"]
-        cadvisor["cAdvisor<br><i>(Container CPU & Memory)</i>"]
+        cadvisor["cAdvisor<br><i>(Container cgroup CPU & Memory)</i>"]
         ksm["kube-state-metrics<br><i>(Pod status, Deployments, Replicas)</i>"]
         appLogs["Application Logs<br><i>(stdout / stderr in /var/log/pods)</i>"]
-        appTraces["Microservice Apps<br><i>(Instrumented with OpenTelemetry SDK)</i>"]
+        appOTel["Microservice Apps<br><i>(Instrumented with OpenTelemetry SDK)</i>"]
+        appPyro["App Runtimes / eBPF<br><i>(Instrumented with Pyroscope Agent)</i>"]
     end
 
-    subgraph Collection["2. TELEMETRY COLLECTION & ROUTING"]
-        otel["OpenTelemetry Collector<br><i>(Universal pipeline for Metrics, Logs, Traces)</i>"]
-        promtail["Promtail / Fluent Bit / Alloy<br><i>(Log shipper)</i>"]
+    subgraph Pipeline["2. UNIFIED TELEMETRY COLLECTION & PIPELINE"]
+        alloy["🟣 Grafana Alloy / OpenTelemetry Collector<br><i>(All-in-One Universal Shipper for Metrics, Logs, Traces & Profiles)</i>"]
     end
 
-    subgraph Storage["3. STORAGE & ANALYSIS ENGINES"]
-        prom["Prometheus<br><i>(Time-Series Metrics DB)</i>"]
-        loki["Grafana Loki<br><i>(Lightweight Log DB)</i>"]
-        elastic["Elasticsearch<br><i>(Full-Text Log Search)</i>"]
-        jaeger["Jaeger<br><i>(Distributed Traces DB)</i>"]
+    subgraph Storage["3. STORAGE & ANALYSIS ENGINES (The 4 Pillars)"]
+        prom["🔥 Prometheus / Mimir / Thanos<br><i>(Metrics Engine: PromQL)</i>"]
+        loki["🟠🟡 Grafana Loki<br><i>(Log Engine: LogQL)</i>"]
+        tempo["🟠 Grafana Tempo / Jaeger<br><i>(Tracing Engine: TraceQL)</i>"]
+        pyro["🟠 Grafana Pyroscope<br><i>(Profiling Engine: Flame Graphs)</i>"]
+        s3[("Cloud Object Storage<br><i>AWS S3 / GCS / MinIO<br>(Cheap Long-Term Storage)</i>")]
     end
 
-    subgraph Actions["4. ALERTING & VISUALIZATION"]
-        alertmgr["Alertmanager<br><i>(Routing, de-duplication)</i>"]
-        grafana["Grafana<br><i>(Unified UI for Metrics, Logs & Traces)</i>"]
-        kibana["Kibana<br><i>(Elasticsearch Search UI)</i>"]
-        notifications["Slack / Email / PagerDuty"]
+    subgraph Actions["4. ALERTING & VISUALIZATION (Single Pane of Glass)"]
+        alertmgr["Alertmanager<br><i>(Alert deduplication & routing)</i>"]
+        grafana["🟠 Grafana (Unified Web Dashboard)<br><i>(Single UI for Metrics, Logs, Traces & Profiles)</i>"]
+        notifications["Team Alerts<br><i>(Slack, PagerDuty, Email)</i>"]
     end
 
-    %% Metrics Flow
-    nodeExp -->|Scraped by HTTP /metrics| prom
-    cadvisor -->|Scraped by HTTP /metrics| prom
-    ksm -->|Scraped by HTTP /metrics| prom
-    otel -.->|Can push metrics to| prom
+    %% Ingestion into Collection Pipeline
+    nodeExp -->|Scraped HTTP /metrics| prom
+    cadvisor -->|Scraped HTTP /metrics| prom
+    ksm -->|Scraped HTTP /metrics| prom
+    appLogs -->|Tails log files| alloy
+    appOTel -->|Sends OTLP Traces & Metrics| alloy
+    appPyro -->|Sends CPU/Memory Profiles| alloy
 
-    %% Logs Flow
-    appLogs -->|Reads log files| promtail
-    promtail -->|Ships logs| loki
-    appLogs -.->|Alternative: Beats/Fluentd| elastic
+    %% Pipeline routing to Storage
+    alloy -->|Pushes or exposes Metrics| prom
+    alloy -->|Pushes compressed Logs| loki
+    alloy -->|Pushes Traces via OTLP| tempo
+    alloy -->|Pushes Profile Snapshots| pyro
 
-    %% Traces Flow
-    appTraces -->|Sends spans via OTLP| otel
-    otel -->|Exports traces| jaeger
+    %% Long-term Object Storage offload
+    loki -.->|Archives log chunks| s3
+    tempo -.->|Archives trace blocks| s3
+    pyro -.->|Archives profile blocks| s3
+    prom -.->|Optional: Thanos/Mimir offload| s3
 
     %% Alerting Flow
-    prom -->|Evaluates alert rules| alertmgr
+    prom -->|Fires alert rules| alertmgr
     alertmgr -->|Sends notifications| notifications
 
-    %% Visualization Flow
+    %% Visualization Queries from Grafana
     prom -->|PromQL Queries| grafana
     loki -->|LogQL Queries| grafana
-    jaeger -->|Trace Queries| grafana
-    elastic -->|Search Queries| kibana
+    tempo -->|TraceQL Queries| grafana
+    pyro -->|Flame Graph Queries| grafana
+```
+
+### 🧠 Unified Mental Model: How All 4 Pillars Connect
+
+```text
+                               ┌──────────────────────────────────────────────┐
+                               │             🟠 GRAFANA (WEB UI)              │
+                               │   "The Single Pane of Glass to see it all"   │
+                               └──────┬──────────┬──────────┬──────────┬──────┘
+                                      │          │          │          │
+   ┌──────────────────────────────────┴──┐ ┌─────┴─────┐ ┌──┴───────┐ ┌┴─────────────────┐
+   │        🔥 PROMETHEUS / MIMIR        │ │ 🟠🟡 LOKI │ │ 🟠 TEMPO │ │  🟠 PYROSCOPE    │
+   │               METRICS               │ │   LOGS    │ │  TRACES  │ │     PROFILES     │
+   │        "Is the server slow?"        │ │ "Any error│ │ "Which ms│ │ "Which exact line│
+   │                                     │ │ message?" │ │ is slow?"│ │  of code burned  │
+   │                                     │ │           │ │          │ │    the CPU?"     │
+   └──────────────────▲──────────────────┘ └───▲───────┘ └───▲──────┘ └────────▲─────────┘
+                      │                        │             │                 │
+                      └────────────────────────┼─────────────┴─────────────────┘
+                                               │
+                                 ┌─────────────┴─────────────┐
+                                 │     🟣 GRAFANA ALLOY      │
+                                 │ "The All-in-One Collector"│
+                                 └─────────────▲─────────────┘
+                                               │
+                                     [ YOUR APPLICATIONS ]
 ```
 
 ---

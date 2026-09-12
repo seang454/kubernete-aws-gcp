@@ -6,6 +6,96 @@ For complete architecture diagrams and deep-dive explanations, see the [Observab
 
 ---
 
+## 🗺️ Master Observability Architecture
+
+```mermaid
+flowchart TD
+    subgraph Sources["1. DATA SOURCES & AGENTS (Inside Kubernetes Cluster)"]
+        nodeExp["Node Exporter<br><i>(Host OS CPU, Disk, RAM, Network)</i>"]
+        cadvisor["cAdvisor<br><i>(Container cgroup CPU & Memory)</i>"]
+        ksm["kube-state-metrics<br><i>(Pod status, Deployments, Replicas)</i>"]
+        appLogs["Application Logs<br><i>(stdout / stderr in /var/log/pods)</i>"]
+        appOTel["Microservice Apps<br><i>(Instrumented with OpenTelemetry SDK)</i>"]
+        appPyro["App Runtimes / eBPF<br><i>(Instrumented with Pyroscope Agent)</i>"]
+    end
+
+    subgraph Pipeline["2. UNIFIED TELEMETRY COLLECTION & PIPELINE"]
+        alloy["🟣 Grafana Alloy / OpenTelemetry Collector<br><i>(All-in-One Universal Shipper for Metrics, Logs, Traces & Profiles)</i>"]
+    end
+
+    subgraph Storage["3. STORAGE & ANALYSIS ENGINES (The 4 Pillars)"]
+        prom["🔥 Prometheus / Mimir / Thanos<br><i>(Metrics Engine: PromQL)</i>"]
+        loki["🟠🟡 Grafana Loki<br><i>(Log Engine: LogQL)</i>"]
+        tempo["🟠 Grafana Tempo / Jaeger<br><i>(Tracing Engine: TraceQL)</i>"]
+        pyro["🟠 Grafana Pyroscope<br><i>(Profiling Engine: Flame Graphs)</i>"]
+        s3[("Cloud Object Storage<br><i>AWS S3 / GCS / MinIO<br>(Cheap Long-Term Storage)</i>")]
+    end
+
+    subgraph Actions["4. ALERTING & VISUALIZATION (Single Pane of Glass)"]
+        alertmgr["Alertmanager<br><i>(Alert deduplication & routing)</i>"]
+        grafana["🟠 Grafana (Unified Web Dashboard)<br><i>(Single UI for Metrics, Logs, Traces & Profiles)</i>"]
+        notifications["Team Alerts<br><i>(Slack, PagerDuty, Email)</i>"]
+    end
+
+    %% Ingestion into Collection Pipeline
+    nodeExp -->|Scraped HTTP /metrics| prom
+    cadvisor -->|Scraped HTTP /metrics| prom
+    ksm -->|Scraped HTTP /metrics| prom
+    appLogs -->|Tails log files| alloy
+    appOTel -->|Sends OTLP Traces & Metrics| alloy
+    appPyro -->|Sends CPU/Memory Profiles| alloy
+
+    %% Pipeline routing to Storage
+    alloy -->|Pushes or exposes Metrics| prom
+    alloy -->|Pushes compressed Logs| loki
+    alloy -->|Pushes Traces via OTLP| tempo
+    alloy -->|Pushes Profile Snapshots| pyro
+
+    %% Long-term Object Storage offload
+    loki -.->|Archives log chunks| s3
+    tempo -.->|Archives trace blocks| s3
+    pyro -.->|Archives profile blocks| s3
+    prom -.->|Optional: Thanos/Mimir offload| s3
+
+    %% Alerting Flow
+    prom -->|Fires alert rules| alertmgr
+    alertmgr -->|Sends notifications| notifications
+
+    %% Visualization Queries from Grafana
+    prom -->|PromQL Queries| grafana
+    loki -->|LogQL Queries| grafana
+    tempo -->|TraceQL Queries| grafana
+    pyro -->|Flame Graph Queries| grafana
+```
+
+### 🧠 Unified Mental Model: How All 4 Pillars Connect
+
+```text
+                               ┌──────────────────────────────────────────────┐
+                               │             🟠 GRAFANA (WEB UI)              │
+                               │   "The Single Pane of Glass to see it all"   │
+                               └──────┬──────────┬──────────┬──────────┬──────┘
+                                      │          │          │          │
+   ┌──────────────────────────────────┴──┐ ┌─────┴─────┐ ┌──┴───────┐ ┌┴─────────────────┐
+   │        🔥 PROMETHEUS / MIMIR        │ │ 🟠🟡 LOKI │ │ 🟠 TEMPO │ │  🟠 PYROSCOPE    │
+   │               METRICS               │ │   LOGS    │ │  TRACES  │ │     PROFILES     │
+   │        "Is the server slow?"        │ │ "Any error│ │ "Which ms│ │ "Which exact line│
+   │                                     │ │ message?" │ │ is slow?"│ │  of code burned  │
+   │                                     │ │           │ │          │ │    the CPU?"     │
+   └──────────────────▲──────────────────┘ └───▲───────┘ └───▲──────┘ └────────▲─────────┘
+                      │                        │             │                 │
+                      └────────────────────────┼─────────────┴─────────────────┘
+                                               │
+                                 ┌─────────────┴─────────────┐
+                                 │     🟣 GRAFANA ALLOY      │
+                                 │ "The All-in-One Collector"│
+                                 └─────────────▲─────────────┘
+                                               │
+                                     [ YOUR APPLICATIONS ]
+```
+
+---
+
 ## 📁 Project Structure
 
 ```text
