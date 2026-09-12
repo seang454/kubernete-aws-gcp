@@ -96,6 +96,49 @@ flowchart TD
 
 ---
 
+### 🏢 Enterprise / Big Project Scale Architecture
+
+For high-scale multi-cluster environments, this architecture scales out into a distributed platform with streaming buffers and object storage:
+
+```mermaid
+flowchart TD
+    subgraph Edge["🌐 EDGE CLUSTERS (AWS, GCP, On-Prem)"]
+        apps["Apps & Exporters"] --> alloy["🟣 Grafana Alloy (Edge Agent)<br><i>• PII Redaction • Metric Filtering • Tail-Based Trace Sampling</i>"]
+    end
+
+    subgraph Queue["⚡ RESILIENCE BUFFER"]
+        kafka["📨 Apache Kafka / AWS Kinesis<br><i>(Absorbs 50x outage retry storms)</i>"]
+        alloy --> kafka
+    end
+
+    subgraph StorageCluster["🏢 DISTRIBUTED STORAGE & LAKE"]
+        kafka --> mimir["🔥 Mimir / Thanos HA"]
+        kafka --> loki["🟠🟡 Loki HA"]
+        kafka --> tempo["🟠 Tempo HA"]
+        kafka --> pyro["🟠 Pyroscope HA"]
+
+        s3[("AWS S3 / GCS Object Store<br><i>(Years of historical retention)</i>")]
+        mimir --> s3
+        loki --> s3
+        tempo --> s3
+        pyro --> s3
+    end
+
+    subgraph Governance["🎯 ACCESS & GOVERNANCE"]
+        gw["Multi-Tenant Gateway (X-Scope-OrgID)"]
+        grafana["🟠 Grafana Enterprise / HA Cluster"]
+        mimir --> gw
+        loki --> gw
+        tempo --> gw
+        pyro --> gw
+        gw --> grafana
+    end
+```
+
+> 📖 **Deep Dive:** For the complete scaling blueprint, tail-sampling configuration, and distributed Helm values, see [Section 10: Enterprise Scaling Blueprint](./observability-architecture-guide.md#10-enterprise-scaling-blueprint-adapting-for-big-project-production-scale).
+
+---
+
 ## 📁 Project Structure
 
 ```text
