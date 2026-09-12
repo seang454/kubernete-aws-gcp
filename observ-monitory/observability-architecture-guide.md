@@ -188,6 +188,87 @@ flowchart TD
     thanosQ --> alerts
 ```
 
+---
+
+### 1.3 Alternative Enterprise Architecture: Pure Push Model with Grafana Mimir
+
+While **Architecture 1.2 (Thanos Sidecar)** is recommended for hybrid environments and clusters needing local resilience, some large enterprises prefer a **Pure Push Architecture** where **all metrics, logs, and traces are pushed centrally** to **Grafana Mimir** via `remote_write` without running local Prometheus storage pods on edge clusters:
+
+```mermaid
+flowchart TD
+    subgraph EdgeClusters["🌐 APPLICATION CLUSTERS (Prod-US, Prod-EU, Staging, Edge)"]
+        subgraph Cluster1["Kubernetes Cluster A (e.g. AWS EKS)"]
+            app1["Microservices & Daemons"]
+            alloy1["🟣 Grafana Alloy (Edge Agent)<br><i>• PII & Secret Redaction<br>• Metric Drop Rules<br>• Tail-Based Trace Sampling</i>"]
+            app1 --> alloy1
+        end
+
+        subgraph Cluster2["Kubernetes Cluster B (e.g. GCP GKE)"]
+            app2["Microservices & Daemons"]
+            alloy2["🟣 Grafana Alloy (Edge Agent)<br><i>• PII & Secret Redaction<br>• Metric Drop Rules<br>• Tail-Based Trace Sampling</i>"]
+            app2 --> alloy2
+        end
+    end
+
+    subgraph StreamingBuffer["⚡ RESILIENCE & SPIKE PROTECTION BUFFER"]
+        kafka["📨 Apache Kafka / AWS Kinesis / Pulsar<br><i>(Absorbs 50x outage retry storms without losing logs/traces)</i>"]
+        alloy1 -->|Buffered OTLP / Chunks| kafka
+        alloy2 -->|Buffered OTLP / Chunks| kafka
+    end
+
+    subgraph CentralPlatform["🏢 DEDICATED CENTRAL OBSERVABILITY PLATFORM (HA & Distributed)"]
+        subgraph DistributedEngines["Distributed Microservices Storage (Auto-Scaling Pods)"]
+            distMimir["🔥 Grafana Mimir HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Compactor)</i>"]
+            distLoki["🟠🟡 Grafana Loki HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Index Gateway)</i>"]
+            distTempo["🟠 Grafana Tempo HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Compactor)</i>"]
+            distPyro["🟠 Grafana Pyroscope HA<br><i>(eBPF Profile Distributors & Aggregators)</i>"]
+        end
+
+        subgraph ObjectStorageLake["Cloud Object Storage Data Lake (Cost: ~$0.02/GB/mo)"]
+            s3Lake[("AWS S3 / Google Cloud Storage / MinIO<br><i>Parquet Files, TSDB Chunks, Trace Blocks<br>(Years of Historical Retention)</i>")]
+        end
+    end
+
+    subgraph GlobalGovernance["🎯 GOVERNANCE, SECURITY & VISUALIZATION"]
+        gw["Multi-Tenant Ingress Gateway<br><i>(Enforces X-Scope-OrgID, Ingestion Quotas, TLS mTLS)</i>"]
+        grafanaHA["🟠 Grafana Enterprise / HA Cluster<br><i>(SAML/OIDC SSO, Team RBAC, Distributed Caching)</i>"]
+        alerts["Alertmanager HA<br><i>(PagerDuty, Slack, OpsGenie)</i>"]
+    end
+
+    %% Ingestion from Kafka into Engines
+    kafka --> distMimir
+    kafka --> distLoki
+    kafka --> distTempo
+    kafka --> distPyro
+
+    %% Engines store blocks in S3
+    distMimir --> s3Lake
+    distLoki --> s3Lake
+    distTempo --> s3Lake
+    distPyro --> s3Lake
+
+    %% Alerting
+    distMimir --> alerts
+
+    %% Reading through Multi-Tenant Gateway
+    distMimir --> gw
+    distLoki --> gw
+    distTempo --> gw
+    distPyro --> gw
+    gw --> grafanaHA
+```
+
+#### ⚖️ When to Choose 1.2 (Thanos) vs. 1.3 (Mimir):
+
+| Decision Criteria | Choose 1.2 (Thanos Model) | Choose 1.3 (Pure Mimir Model) |
+| :--- | :--- | :--- |
+| **Existing Stack** | You already run **`kube-prometheus-stack`** (zero rewrite). | You want completely stateless edge clusters with **no local TSDB disk**. |
+| **Cluster Survivability** | ✅ **High** (Local Prometheus alerts still fire if cloud link dies). | ⚠️ **Dependent on WAN** (Alerting stops if cross-cloud network drops). |
+| **Central Cluster RAM** | **Low to Medium** (Thanos Store Gateway is lightweight). | **Heavy** (Mimir Distributors + Ingesters require 16GB–32GB+ RAM). |
+| **Multi-Cloud Hybrid** | **Ideal for AWS + GCP** with WireGuard mesh. | Best when all clusters are in the same cloud region or have direct fiber links. |
+
+---
+
 #### 📊 Architectural Differences: Small/Medium vs. Big Project
 
 | Architectural Dimension | Small/Medium Project (Current Setup) | Enterprise / Big Project Scale |
@@ -392,85 +473,6 @@ flowchart TD
 > | :--- | :--- | :--- |
 > | **1.1 (Cluster-Level)** | **Swiss Army Knife** | Knife, scissors, and screwdriver folded into **one pocket tool**. Compact, lightweight (<500MB RAM), perfect for 1–10 nodes. |
 | **1.2 (Enterprise)** | **Professional Workshop** | Dedicated workbench with separate saws, drills, and hammers. 50 workers can work simultaneously without blocking each other. |
-
----
-
-### 1.3 Alternative Enterprise Architecture: Pure Push Model with Grafana Mimir
-
-While **Architecture 1.2 (Thanos Sidecar)** is recommended for hybrid environments and clusters needing local resilience, some large enterprises prefer a **Pure Push Architecture** where **all metrics, logs, and traces are pushed centrally** to **Grafana Mimir** via `remote_write` without running local Prometheus storage pods on edge clusters:
-
-```mermaid
-flowchart TD
-    subgraph EdgeClusters["🌐 APPLICATION CLUSTERS (Prod-US, Prod-EU, Staging, Edge)"]
-        subgraph Cluster1["Kubernetes Cluster A (e.g. AWS EKS)"]
-            app1["Microservices & Daemons"]
-            alloy1["🟣 Grafana Alloy (Edge Agent)<br><i>• PII & Secret Redaction<br>• Metric Drop Rules<br>• Tail-Based Trace Sampling</i>"]
-            app1 --> alloy1
-        end
-
-        subgraph Cluster2["Kubernetes Cluster B (e.g. GCP GKE)"]
-            app2["Microservices & Daemons"]
-            alloy2["🟣 Grafana Alloy (Edge Agent)<br><i>• PII & Secret Redaction<br>• Metric Drop Rules<br>• Tail-Based Trace Sampling</i>"]
-            app2 --> alloy2
-        end
-    end
-
-    subgraph StreamingBuffer["⚡ RESILIENCE & SPIKE PROTECTION BUFFER"]
-        kafka["📨 Apache Kafka / AWS Kinesis / Pulsar<br><i>(Absorbs 50x outage retry storms without losing logs/traces)</i>"]
-        alloy1 -->|Buffered OTLP / Chunks| kafka
-        alloy2 -->|Buffered OTLP / Chunks| kafka
-    end
-
-    subgraph CentralPlatform["🏢 DEDICATED CENTRAL OBSERVABILITY PLATFORM (HA & Distributed)"]
-        subgraph DistributedEngines["Distributed Microservices Storage (Auto-Scaling Pods)"]
-            distMimir["🔥 Grafana Mimir HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Compactor)</i>"]
-            distLoki["🟠🟡 Grafana Loki HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Index Gateway)</i>"]
-            distTempo["🟠 Grafana Tempo HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Compactor)</i>"]
-            distPyro["🟠 Grafana Pyroscope HA<br><i>(eBPF Profile Distributors & Aggregators)</i>"]
-        end
-
-        subgraph ObjectStorageLake["Cloud Object Storage Data Lake (Cost: ~$0.02/GB/mo)"]
-            s3Lake[("AWS S3 / Google Cloud Storage / MinIO<br><i>Parquet Files, TSDB Chunks, Trace Blocks<br>(Years of Historical Retention)</i>")]
-        end
-    end
-
-    subgraph GlobalGovernance["🎯 GOVERNANCE, SECURITY & VISUALIZATION"]
-        gw["Multi-Tenant Ingress Gateway<br><i>(Enforces X-Scope-OrgID, Ingestion Quotas, TLS mTLS)</i>"]
-        grafanaHA["🟠 Grafana Enterprise / HA Cluster<br><i>(SAML/OIDC SSO, Team RBAC, Distributed Caching)</i>"]
-        alerts["Alertmanager HA<br><i>(PagerDuty, Slack, OpsGenie)</i>"]
-    end
-
-    %% Ingestion from Kafka into Engines
-    kafka --> distMimir
-    kafka --> distLoki
-    kafka --> distTempo
-    kafka --> distPyro
-
-    %% Engines store blocks in S3
-    distMimir --> s3Lake
-    distLoki --> s3Lake
-    distTempo --> s3Lake
-    distPyro --> s3Lake
-
-    %% Alerting
-    distMimir --> alerts
-
-    %% Reading through Multi-Tenant Gateway
-    distMimir --> gw
-    distLoki --> gw
-    distTempo --> gw
-    distPyro --> gw
-    gw --> grafanaHA
-```
-
-#### ⚖️ When to Choose 1.2 (Thanos) vs. 1.3 (Mimir):
-
-| Decision Criteria | Choose 1.2 (Thanos Model) | Choose 1.3 (Pure Mimir Model) |
-| :--- | :--- | :--- |
-| **Existing Stack** | You already run **`kube-prometheus-stack`** (zero rewrite). | You want completely stateless edge clusters with **no local TSDB disk**. |
-| **Cluster Survivability** | ✅ **High** (Local Prometheus alerts still fire if cloud link dies). | ⚠️ **Dependent on WAN** (Alerting stops if cross-cloud network drops). |
-| **Central Cluster RAM** | **Low to Medium** (Thanos Store Gateway is lightweight). | **Heavy** (Mimir Distributors + Ingesters require 16GB–32GB+ RAM). |
-| **Multi-Cloud Hybrid** | **Ideal for AWS + GCP** with WireGuard mesh. | Best when all clusters are in the same cloud region or have direct fiber links. |
 
 ---
 
