@@ -215,6 +215,85 @@ flowchart TD
 > 
 > **Key Takeaway:** In both architectures, your applications are **still instrumented with the OpenTelemetry SDK**, and they **still ship telemetry to Grafana Alloy**. Diagram 1.2 simply groups them together so the multi-cluster view remains clean and readable!
 
+#### 💡 Key Note: Why Does Diagram 1.1 Scrape Directly, While Diagram 1.2 Sends Everything to Alloy?
+
+> [!NOTE]
+> ### 1. Why Diagram 1.1 has Node Exporter going directly to Prometheus (The Classic Pull Model)
+> In traditional, single-cluster Kubernetes setups (`kube-prometheus-stack`), Prometheus operates via **HTTP PULL (Scraping)**:
+> 
+> ```text
+>                ┌──────────────────────────────┐
+>                │         🔥 PROMETHEUS        │
+>                └──────┬──────┬──────┬─────────┘
+>                       │      │      │  (Prometheus reaches out & scrapes HTTP)
+>                       ▼      ▼      ▼
+>                  NodeExp  cAdvisor  ksm
+> ```
+> 
+> - Prometheus has its own built-in scraping engine.
+> - Every 15 seconds, Prometheus reaches out directly over the local cluster network to `http://node-exporter:9100/metrics` and pulls the numbers into its database.
+> - In this classic setup, Alloy is only used for **Logs, Traces, and Profiles** (which Prometheus cannot natively collect).
+> 
+> ---
+> 
+> ### 2. Why Diagram 1.2 sends EVERYTHING to Grafana Alloy (The Modern Enterprise Push Model)
+> In an enterprise with multiple clusters (e.g. AWS, GCP, On-Premises), the classic Pull model breaks down completely:
+> 1. **Firewalls & Private Networks:** Central Prometheus in GCP cannot reach through firewalls and private VPCs to scrape `http://node-exporter:9100` inside your private AWS cluster.
+> 2. **No Edge Filtering:** If Prometheus pulls raw metrics directly, nobody is filtering out junk metrics or high-cardinality labels before they hit the database.
+> 3. **No Cluster Tagging:** Node Exporter does not know what cluster it lives in. It just outputs raw Linux numbers.
+> 
+> **The Enterprise Solution:** Turn **Grafana Alloy into the single collector for EVERYTHING**:
+> - Alloy scrapes Node Exporter, cAdvisor, and `kube-state-metrics` locally inside the cluster.
+> - Alloy drops junk metrics and attaches metadata tags (`cluster="aws-prod-1"`, `environment="production"`).
+> - Alloy **PUSHES** (via TLS / Remote-Write) clean metrics out to Kafka or Central Mimir.
+> 
+> ---
+> 
+> ### 3. Can Diagram 1.1 ALSO send everything to Grafana Alloy? (The Fully Unified Pipeline)
+> **YES! Absolutely.** In fact, that is the most modern cloud-native pattern. If you configure Grafana Alloy to scrape the host exporters locally as well, the architecture becomes **100% unified and consistent**:
+> 
+> ```mermaid
+> flowchart TD
+>     subgraph Sources["1. DATA SOURCES"]
+>         nodeExp["Node Exporter (Host Metrics)"]
+>         cadvisor["cAdvisor (Container Metrics)"]
+>         ksm["kube-state-metrics (K8s State)"]
+>         appLogs["Application Logs"]
+>         appOTel["Microservices (OTel Traces)"]
+>         appPyro["App Profiles (Pyroscope)"]
+>     end
+> 
+>     subgraph Pipeline["2. UNIFIED COLLECTOR"]
+>         alloy["🟣 Grafana Alloy<br><i>(Single Universal Shipper for all 4 Signals)</i>"]
+>     end
+> 
+>     subgraph Storage["3. STORAGE ENGINES"]
+>         prom["🔥 Prometheus / Mimir (Metrics)"]
+>         loki["🟠🟡 Grafana Loki (Logs)"]
+>         tempo["🟠 Grafana Tempo (Traces)"]
+>         pyro["🟠 Grafana Pyroscope (Profiles)"]
+>     end
+> 
+>     %% Everything goes to Alloy!
+>     nodeExp --> alloy
+>     cadvisor --> alloy
+>     ksm --> alloy
+>     appLogs --> alloy
+>     appOTel --> alloy
+>     appPyro --> alloy
+> 
+>     %% Alloy distributes to the right database!
+>     alloy -->|Metrics: PromQL| prom
+>     alloy -->|Logs: LogQL| loki
+>     alloy -->|Traces: TraceQL| tempo
+>     alloy -->|Profiles: Flame Graphs| pyro
+> ```
+> 
+> | Model | How Metrics Flow | When to Use It? |
+> | :--- | :--- | :--- |
+> | **Model A: Classic Hybrid** *(Diagram 1.1)* | • Prometheus scrapes Node Exporter directly.<br>• Alloy only handles Logs, Traces, and Profiles. | Great for **small, single-cluster** setups running the default `kube-prometheus-stack`. |
+> | **Model B: Fully Unified Alloy** *(Diagram 1.2)* | • **Grafana Alloy collects all 4 signals** (Metrics, Logs, Traces, Profiles).<br>• Alloy routes each signal to Prometheus, Loki, Tempo, and Pyroscope. | **Industry Gold Standard** for modern and enterprise Kubernetes setups. Clean, consistent, and enables edge filtering everywhere! |
+
 ---
 
 ## 2. The Three Pipelines in Detail
