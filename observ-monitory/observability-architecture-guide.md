@@ -282,7 +282,7 @@ flowchart TD
 | **Data Isolation** | Single tenant / single namespace | **Multi-Tenancy** (`X-Scope-OrgID` tenant isolation with RBAC) |
 | **Metric Retention** | 15–30 days raw data | **Downsampled Metrics**: 14d raw $\to$ 90d 5m $\to$ 3yr 1h downsampled |
 
-#### 💡 Key Note: Connecting Diagram 1.1 and Diagram 1.2 (The Camera Metaphor)
+#### 💡 Key Note: Connecting Diagram 1.1 with Diagrams 1.2 & 1.3 (The Camera Metaphor)
 
 > [!NOTE]
 > **The workloads are 100% identical under the hood.** The only difference is the **Zoom Level of the camera**:
@@ -300,26 +300,28 @@ flowchart TD
 > └─────────────────────────────────────────────────────────────────┘
 >                                  │
 >                                  ▼ (Condensed into 1 box)
-> DIAGRAM 1.2: ZOOMED-OUT (1x Satellite View)
-> Looking at 50 clusters across the whole company:
+> DIAGRAMS 1.2 & 1.3: ZOOMED-OUT (1x Satellite View)
+> Looking at multi-cluster fleets across AWS, GCP, and On-Prem:
 > ┌─────────────────────────────────────────────────────────────────┐
 > │                   "Microservices & Daemons"                     │
 > └─────────────────────────────────────────────────────────────────┘
 > ```
 > 
-> | Label in Diagram 1.2 | What it contains from Diagram 1.1 |
-> | :--- | :--- |
-> | **"Microservices"** | **`Microservice Apps (Instrumented with OpenTelemetry SDK)`** *(Your backend applications emitting traces, spans, and metrics).* |
-> | **"& Daemons"** | **`Node Exporter` + `cAdvisor` + `kube-state-metrics` + `Pyroscope Agent`** *(All the background Linux processes and system agents running on the machine).* |
-> | **"🟣 Grafana Alloy (Edge Agent)"** | **`🟣 Grafana Alloy`** *(The exact same software product, deployed as a DaemonSet at the cluster edge to scrub secrets, filter metrics, and tail-sample traces).* |
+> | Label in Diagrams 1.2 & 1.3 | What it contains from Diagram 1.1 | Role in Diagram 1.2 (Thanos) vs. Diagram 1.3 (Mimir) |
+> | :--- | :--- | :--- |
+> | **"Microservices"** | **`Microservice Apps (Instrumented with OpenTelemetry SDK)`** *(Your backend applications emitting traces, spans, and metrics).* | • **In 1.2:** Ships traces/logs to Alloy; metrics scraped locally by Prometheus.<br>• **In 1.3:** Ships all traces, logs, and metrics directly to Alloy. |
+> | **"& Daemons"** | **`Node Exporter` + `cAdvisor` + `kube-state-metrics` + `Pyroscope Agent`** *(All the background Linux processes and system agents running on the host).* | • **In 1.2:** Scraped locally by `kube-prometheus-stack` (Thanos Sidecar uploads 2h blocks to S3).<br>• **In 1.3:** Scraped by Alloy and pushed centrally to Kafka/Mimir. |
+> | **"🟣 Grafana Alloy (Edge Agent)"** | **`🟣 Grafana Alloy`** *(Deployed as a DaemonSet at the cluster edge).* | • **In 1.2:** Tails logs, filters PII, samples traces, and forwards to Kafka buffer.<br>• **In 1.3:** Universal collector and shipper for all 4 telemetry signals. |
 > 
-> **Key Takeaway:** In both architectures, your applications are **still instrumented with the OpenTelemetry SDK**, and they **still ship telemetry to Grafana Alloy**. Diagram 1.2 simply groups them together so the multi-cluster view remains clean and readable!
+> **Key Takeaway:** In all architectures, your applications are **still instrumented with the OpenTelemetry SDK**, and your nodes **still run the same exporters and daemons**. Diagrams 1.2 and 1.3 simply group them into `"Microservices & Daemons"` so the multi-cluster view remains clean and readable!
 
-#### 💡 Key Note: Why Does Diagram 1.1 Scrape Directly, While Diagram 1.2 Sends Everything to Alloy?
+#### 💡 Key Note: Scraping vs. Sidecars vs. Universal Push (Comparing Diagrams 1.1, 1.2 & 1.3)
 
 > [!NOTE]
-> ### 1. Why Diagram 1.1 has Node Exporter going directly to Prometheus (The Classic Pull Model)
-> In traditional, single-cluster Kubernetes setups (`kube-prometheus-stack`), Prometheus operates via **HTTP PULL (Scraping)**:
+> How telemetry flows from your nodes to storage differs depending on whether you run a single cluster or an enterprise multi-cloud fleet:
+> 
+> ### 1. Diagram 1.1: Classic Pull & Hybrid Model (Single/Hybrid Cluster)
+> In traditional Kubernetes setups (`kube-prometheus-stack`), Prometheus operates via **HTTP PULL (Scraping)**:
 > 
 > ```text
 >                ┌──────────────────────────────┐
@@ -330,27 +332,43 @@ flowchart TD
 >                  NodeExp  cAdvisor  ksm
 > ```
 > 
-> - Prometheus has its own built-in scraping engine.
-> - Every 15 seconds, Prometheus reaches out directly over the local cluster network to `http://node-exporter:9100/metrics` and pulls the numbers into its database.
-> - In this classic setup, Alloy is only used for **Logs, Traces, and Profiles** (which Prometheus cannot natively collect).
+> - **Direct Pull:** Prometheus periodically pulls `/metrics` over the local cluster network every 15–30s.
+> - **Hybrid Agent:** **Grafana Alloy** runs alongside Prometheus to collect **Logs, Traces, and Profiles** (which Prometheus cannot natively ingest).
+> - **Storage:** All metrics stay in Prometheus's local PersistentVolume TSDB disk (~15–30 days retention).
+> - **Best for:** Single clusters or small environments with standard `kube-prometheus-stack`.
 > 
 > ---
 > 
-> ### 2. Why Diagram 1.2 sends EVERYTHING to Grafana Alloy (The Modern Enterprise Push Model)
-> In an enterprise with multiple clusters (e.g. AWS, GCP, On-Premises), the classic Pull model breaks down completely:
-> 1. **Firewalls & Private Networks:** Central Prometheus in GCP cannot reach through firewalls and private VPCs to scrape `http://node-exporter:9100` inside your private AWS cluster.
-> 2. **No Edge Filtering:** If Prometheus pulls raw metrics directly, nobody is filtering out junk metrics or high-cardinality labels before they hit the database.
-> 3. **No Cluster Tagging:** Node Exporter does not know what cluster it lives in. It just outputs raw Linux numbers.
-> 
-> **The Enterprise Solution:** Turn **Grafana Alloy into the single collector for EVERYTHING**:
-> - Alloy scrapes Node Exporter, cAdvisor, and `kube-state-metrics` locally inside the cluster.
-> - Alloy drops junk metrics and attaches metadata tags (`cluster="aws-prod-1"`, `environment="production"`).
-> - Alloy **PUSHES** (via TLS / Remote-Write) clean metrics out to Kafka or Central Mimir.
+> ### 2. Diagram 1.2: Autonomous Thanos Sidecar Model (Recommended Enterprise Multi-Cluster)
+> In multi-cluster production (e.g. AWS EKS + GCP GKE), pure central pulling fails across firewalls and NAT gateways. Diagram 1.2 solves this with **Thanos Sidecars**:
+> - **Local Island Survival:** `kube-prometheus-stack` continues scraping locally. If the cross-cloud network or VPN disconnects for 2 hours, local Prometheus keeps alerting your DevOps team without interruption.
+> - **2-Hour TSDB Offloading:** Every 2 hours, Prometheus seals a completed TSDB block. The Thanos Sidecar uploads it directly to cheap Cloud Object Storage (AWS S3 / GCS).
+> - **Alloy Role:** Grafana Alloy tails logs, redacts PII, tail-samples traces, and streams them into **Kafka** for resilient ingestion into Loki HA and Tempo HA.
+> - **Best for:** Multi-cloud enterprise setups needing high resilience, zero rewrite of existing Prometheus setups, and long-term historical querying.
 > 
 > ---
 > 
-> ### 3. Can Diagram 1.1 ALSO send everything to Grafana Alloy? (The Fully Unified Pipeline)
-> **YES! Absolutely.** In fact, that is the most modern cloud-native pattern. If you configure Grafana Alloy to scrape the host exporters locally as well, the architecture becomes **100% unified and consistent**:
+> ### 3. Diagram 1.3: Pure Push Model with Grafana Mimir (Stateless Edge Alternative)
+> In some large enterprises with high-speed fiber inter-region links or single-cloud setups, teams eliminate local Prometheus TSDB disks entirely:
+> - **Stateless Edge Clusters:** Edge clusters run no Prometheus storage pods or PersistentVolumes.
+> - **Alloy as Universal Shipper:** Grafana Alloy scrapes local exporters, drops unwanted metrics at the edge, redacts log PII, and **pushes all 4 signals** via remote-write over Kafka into central **Grafana Mimir HA**, **Loki HA**, and **Tempo HA**.
+> - **Trade-off:** If cross-cloud connectivity drops, edge clusters cannot evaluate metric alerts locally until connectivity is restored.
+> - **Best for:** Hundreds of lightweight edge clusters (e.g. retail stores, IoT, ephemeral dev/staging clusters) managed by a central observability team.
+> 
+> ---
+> 
+> ### 4. Architectural Comparison of Collection Strategies:
+> 
+> | Architectural Model | Metrics Collection Flow | How Telemetry Leaves Edge Cluster | Logs, Traces & Profiles | Edge Disk Footprint | WAN Outage Resilience | Recommended In |
+> | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+> | **Classic Hybrid** | Prometheus scrapes HTTP `/metrics` locally | Telemetry stays in local cluster | Alloy ➔ Local Loki/Tempo | Standard PV (~20–50GB) | ✅ Full local alerting | **Diagram 1.1** (Single Cluster) |
+> | **Thanos Sidecar** | Prometheus scrapes HTTP `/metrics` locally | Thanos Sidecar uploads 2h blocks to S3/GCS | Alloy ➔ Kafka ➔ Central Loki/Tempo | Minimal 2h buffer PV (~10–20GB) | ✅ Full local alerting ("Island Survival") | **Diagram 1.2** (Multi-Cloud / Hybrid Enterprise) |
+> | **Pure Push** | Grafana Alloy scrapes HTTP `/metrics` | Alloy pushes remote-write to Kafka ➔ Mimir | Alloy ➔ Kafka ➔ Central Loki/Tempo | **Zero TSDB disk** (Stateless pods) | ⚠️ Dependent on central platform WAN | **Diagram 1.3** (Stateless Edge Model) |
+> 
+> ---
+> 
+> ### 5. Universal Pipeline Flow: How Grafana Alloy Unifies All 4 Signals
+> When Grafana Alloy is configured as the universal shipper (as in Diagram 1.3 or unified edge setups), all 4 signals pass through a single, consistent pipeline:
 > 
 > ```mermaid
 > flowchart TD
@@ -392,12 +410,16 @@ flowchart TD
 > | Model | How Metrics Flow | When to Use It? |
 > | :--- | :--- | :--- |
 > | **Model A: Classic Hybrid** *(Diagram 1.1)* | • Prometheus scrapes Node Exporter directly.<br>• Alloy only handles Logs, Traces, and Profiles. | Great for **small, single-cluster** setups running the default `kube-prometheus-stack`. |
-> | **Model B: Fully Unified Alloy** *(Diagram 1.2)* | • **Grafana Alloy collects all 4 signals** (Metrics, Logs, Traces, Profiles).<br>• Alloy routes each signal to Prometheus, Loki, Tempo, and Pyroscope. | **Industry Gold Standard** for modern and enterprise Kubernetes setups. Clean, consistent, and enables edge filtering everywhere! |
+> | **Model B: Thanos Sidecar Hybrid** *(Diagram 1.2)* | • Prometheus scrapes Node Exporter locally.<br>• Thanos Sidecar uploads 2h blocks to S3/GCS.<br>• Alloy handles Logs, Traces, and Profiles to Kafka. | **Recommended Enterprise Model** for multi-cloud Kubernetes fleets requiring local alerting autonomy and zero stack rewrite. |
+> | **Model C: Fully Unified Alloy Push** *(Diagram 1.3)* | • **Grafana Alloy collects all 4 signals** (Metrics, Logs, Traces, Profiles).<br>• Alloy routes each signal via Kafka to central Mimir, Loki, Tempo, and Pyroscope. | **Alternative Enterprise Model** for stateless edge clusters where all storage and alerting are centralized in Mimir HA. |
 
-#### 💡 Key Note: Why Do We Use Apache Kafka / AWS Kinesis as a Buffer in Diagram 1.2?
+#### 💡 Key Note: Why Do We Use Apache Kafka / AWS Kinesis as a Buffer in Diagrams 1.2 & 1.3?
 
 > [!NOTE]
-> In Diagram 1.2 (Enterprise Architecture), **Apache Kafka / AWS Kinesis** acts as a **Shock Absorber (Flood Dam)** between your edge clusters and the central storage engines:
+> In **both Diagram 1.2 and Diagram 1.3 (Enterprise Architectures)**, **Apache Kafka / AWS Kinesis / Redpanda** acts as a **Shock Absorber (Flood Dam)** between your edge clusters and the central storage engines:
+> 
+> - In **Diagram 1.2 (Thanos Architecture)**: Kafka specifically buffers high-burst streams (**Logs, Traces, and Profiles** from Grafana Alloy) while metrics are safely batched into S3 by Thanos Sidecars.
+> - In **Diagram 1.3 (Pure Push Architecture)**: Kafka buffers **all incoming streams** (including OTLP metrics and logs) before ingestion into Grafana Mimir HA and Loki HA.
 > 
 > ### 🌊 The Disaster Scenario: Outage Retry Storms
 > - **Normal Traffic:** 500 pods generate 1,000 logs/sec. Loki handles this with low memory.
@@ -418,11 +440,11 @@ flowchart TD
 >     end
 > ```
 > 
-> ### 🎯 The 4 Big Reasons Enterprises Use Kafka / Kinesis in Diagram 1.2:
+> ### 🎯 The 4 Big Reasons Enterprises Use Kafka / Kinesis in Diagrams 1.2 & 1.3:
 > 1. **Outage Surge Protection:** Absorbs 50x retry storms during cascading microservice failures without crashing your monitoring pods.
 > 2. **Zero-Downtime Maintenance:** You can shut down Loki or Tempo for **2 hours** to upgrade versions or apply patches. When they boot back up, they resume reading from Kafka right where they stopped—with **zero data loss**.
 > 3. **Cross-Cloud Disconnect Resilience:** If the internet connection between your AWS cluster and your GCP central cluster flickers, Kafka safely queues all messages on disk.
-> 4. **Fan-Out ("Write Once, Read Many"):** Ship logs to Kafka once, then multiple tools consume in parallel:
+> 4. **Fan-Out ("Write Once, Read Many"):** Ship telemetry to Kafka once, then multiple tools consume in parallel:
 >    - Consumer 1: **Grafana Loki** (DevOps debugging)
 >    - Consumer 2: **SIEM / Wazuh / Splunk** (Cyber Security & Compliance audits)
 >    - Consumer 3: **AI Anomaly Detection Model**
@@ -436,7 +458,7 @@ flowchart TD
 > 
 > The difference is:
 > - **In Diagram 1.1 (Single-Binary Mode):** They are all **crammed into ONE single pod** as internal threads to keep resource usage low (<500MB RAM).
-> - **In Diagram 1.2 (Microservices Mode):** They are **split into separate, independent Kubernetes pods** that auto-scale independently.
+> - **In Diagrams 1.2 & 1.3 (Microservices Mode):** They are **split into separate, independent Kubernetes pods** that auto-scale independently (e.g., Loki HA & Tempo HA in 1.2/1.3; Mimir HA in 1.3; and Thanos Querier/Store Gateway/Compactor in 1.2).
 > 
 > ```text
 > IN ARCHITECTURE 1.1 (The "All-in-One" Swiss Army Knife):
@@ -451,7 +473,7 @@ flowchart TD
 >   All 4 run inside the SAME process and share the same CPU & RAM!
 > 
 > 
-> IN ARCHITECTURE 1.2 (The Enterprise Microservices Split):
+> IN ARCHITECTURES 1.2 & 1.3 (The Enterprise Microservices Split):
 > ┌───────────────────────────┐    ┌───────────────────────────┐
 > │ 📦 POD 1: Distributors    │    │ 📦 POD 2: Ingesters       │
 > │   (Auto-scales on writes) │    │   (High Disk & RAM cache) │
@@ -463,16 +485,16 @@ flowchart TD
 >   Each one is an INDEPENDENT Kubernetes Deployment that scales on its own!
 > ```
 > 
-> ### 🚨 Why Must You Split Them in Diagram 1.2 (Enterprise Scale)?
+> ### 🚨 Why Must You Split Them in Diagrams 1.2 & 1.3 (Enterprise Scale)?
 > At enterprise scale, packing all 4 functions into one pod is dangerous because of **Heavy Query Outages**:
 > - **Scenario:** An engineer opens Grafana and runs a massive search across 90 days of logs: `{app="payment"} |= "error"`.
 > - **In 1.1 (Single Pod):** The query thread spikes CPU and RAM to 100%. The entire pod freezes and crashes (`OOMKilled`). While the pod is dead, **all incoming logs and metrics are lost**!
-> - **In 1.2 (Split Microservices):** Only the **Querier pod** spikes. The **Distributor** and **Ingester** pods run on completely different servers and keep saving data at full speed with **zero interruption**.
+> - **In 1.2 & 1.3 (Split Microservices):** Only the **Querier pod** spikes. The **Distributor** and **Ingester** pods run on completely different servers and keep saving data at full speed with **zero interruption**.
 > 
 > | Architecture | Analogy | Why? |
 > | :--- | :--- | :--- |
 > | **1.1 (Cluster-Level)** | **Swiss Army Knife** | Knife, scissors, and screwdriver folded into **one pocket tool**. Compact, lightweight (<500MB RAM), perfect for 1–10 nodes. |
-| **1.2 (Enterprise)** | **Professional Workshop** | Dedicated workbench with separate saws, drills, and hammers. 50 workers can work simultaneously without blocking each other. |
+> | **1.2 & 1.3 (Enterprise)** | **Professional Workshop** | Dedicated workbench with separate saws, drills, and hammers. 50 workers can work simultaneously without blocking each other. |
 
 ---
 
