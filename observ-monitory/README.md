@@ -135,6 +135,12 @@ flowchart TD
     end
 ```
 
+> [!NOTE]
+> **Why are the labels different between the Cluster and Enterprise diagrams? (The Camera Metaphor)**  
+> The workloads are **100% identical under the hood**.
+> - **In the Single-Cluster Diagram:** We zoom in (10x) to show every individual piece (`Microservice Apps (OTel SDK)`, `Node Exporter`, `cAdvisor`, `kube-state-metrics`, `Pyroscope`).
+> - **In the Enterprise Diagram:** We zoom out (1x) across 50 clusters, summarizing those same 6 pieces into **`Microservices & Daemons`**, and labeling Grafana Alloy as **`🟣 Edge Alloy Agent`** to emphasize its role scrubbing PII and tail-sampling traces at the edge.
+
 > 📖 **Deep Dive:** For the complete scaling blueprint, tail-sampling configuration, and distributed Helm values, see [Section 10: Enterprise Scaling Blueprint](./observability-architecture-guide.md#10-enterprise-scaling-blueprint-adapting-for-big-project-production-scale).
 
 ---

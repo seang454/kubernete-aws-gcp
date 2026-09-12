@@ -182,6 +182,39 @@ flowchart TD
 | **Data Isolation** | Single tenant / single namespace | **Multi-Tenancy** (`X-Scope-OrgID` tenant isolation with RBAC) |
 | **Metric Retention** | 15–30 days raw data | **Downsampled Metrics**: 14d raw $\to$ 90d 5m $\to$ 3yr 1h downsampled |
 
+#### 💡 Key Note: Connecting Diagram 1.1 and Diagram 1.2 (The Camera Metaphor)
+
+> [!NOTE]
+> **The workloads are 100% identical under the hood.** The only difference is the **Zoom Level of the camera**:
+> 
+> ```text
+> DIAGRAM 1.1: ZOOMED-IN (10x Microscope View)
+> Looking inside 1 single cluster to see every individual component:
+> ┌─────────────────────────────────────────────────────────────────┐
+> │ 1. Microservice Apps (Instrumented with OpenTelemetry SDK)      │
+> │ 2. Node Exporter (Host Linux daemon)                            │
+> │ 3. cAdvisor (Kubelet container daemon)                          │
+> │ 4. kube-state-metrics (API server daemon)                       │
+> │ 5. App Runtimes / eBPF (Pyroscope profiling agent)              │
+> │ 6. Application Logs (stdout / stderr log files)                 │
+> └─────────────────────────────────────────────────────────────────┘
+>                                  │
+>                                  ▼ (Condensed into 1 box)
+> DIAGRAM 1.2: ZOOMED-OUT (1x Satellite View)
+> Looking at 50 clusters across the whole company:
+> ┌─────────────────────────────────────────────────────────────────┐
+> │                   "Microservices & Daemons"                     │
+> └─────────────────────────────────────────────────────────────────┘
+> ```
+> 
+> | Label in Diagram 1.2 | What it contains from Diagram 1.1 |
+> | :--- | :--- |
+> | **"Microservices"** | **`Microservice Apps (Instrumented with OpenTelemetry SDK)`** *(Your backend applications emitting traces, spans, and metrics).* |
+> | **"& Daemons"** | **`Node Exporter` + `cAdvisor` + `kube-state-metrics` + `Pyroscope Agent`** *(All the background Linux processes and system agents running on the machine).* |
+> | **"🟣 Edge Alloy Agent"** | **`🟣 Grafana Alloy`** *(The exact same software product, deployed as a DaemonSet at the cluster edge to scrub secrets, filter metrics, and tail-sample traces).* |
+> 
+> **Key Takeaway:** In both architectures, your applications are **still instrumented with the OpenTelemetry SDK**, and they **still ship telemetry to Grafana Alloy**. Diagram 1.2 simply groups them together so the multi-cluster view remains clean and readable!
+
 ---
 
 ## 2. The Three Pipelines in Detail
