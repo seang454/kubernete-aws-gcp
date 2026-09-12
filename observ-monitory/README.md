@@ -103,31 +103,39 @@ For high-scale multi-cluster environments, this architecture scales out into a d
 ```mermaid
 flowchart TD
     subgraph Edge["🌐 EDGE CLUSTERS (AWS, GCP, On-Prem)"]
-        apps["Apps & Exporters"] --> alloy["🟣 Grafana Alloy (Edge Agent)<br><i>• PII Redaction • Metric Filtering • Tail-Based Trace Sampling</i>"]
+        apps["Apps (OTel SDK) & Exporters"]
+        kps["🔥 kube-prometheus-stack + Thanos Sidecar"]
+        alloy["🟣 Grafana Alloy (Edge Agent)<br><i>• PII Redaction • Metric Filtering • Tail-Sampling</i>"]
+        apps --> alloy
+        apps -.->|Metrics| kps
     end
 
-    subgraph Queue["⚡ RESILIENCE BUFFER"]
-        kafka["📨 Apache Kafka / AWS Kinesis<br><i>(Absorbs 50x outage retry storms)</i>"]
+    subgraph Queue["⚡ RESILIENCE BUFFER (Logs, Traces, Profiles)"]
+        kafka["📨 Apache Kafka / Redpanda<br><i>(Absorbs 50x outage retry storms)</i>"]
         alloy --> kafka
     end
 
-    subgraph StorageCluster["🏢 DISTRIBUTED STORAGE & LAKE"]
-        kafka --> mimir["🔥 Mimir / Thanos HA"]
+    subgraph StorageCluster["🏢 CENTRAL STORAGE & DATA LAKE"]
+        s3[("Cloud Object Storage (AWS S3 / GCS)<br><i>• Metrics 2h blocks + downsamples<br>• Loki log chunks & Tempo traces</i>")]
+        
+        kps -->|Uploads 2h TSDB Blocks| s3
+        thanos["🔥 Thanos Stack (Querier + Store Gateway + Compactor)"]
+        s3 <--> thanos
+        kps -.->|gRPC Live Queries <2h| thanos
+
         kafka --> loki["🟠🟡 Loki HA"]
         kafka --> tempo["🟠 Tempo HA"]
         kafka --> pyro["🟠 Pyroscope HA"]
 
-        s3[("AWS S3 / GCS Object Store<br><i>(Years of historical retention)</i>")]
-        mimir --> s3
         loki --> s3
         tempo --> s3
         pyro --> s3
     end
 
-    subgraph Governance["🎯 ACCESS & GOVERNANCE"]
-        gw["Multi-Tenant Gateway (X-Scope-OrgID)"]
-        grafana["🟠 Grafana Enterprise / HA Cluster"]
-        mimir --> gw
+    subgraph Governance["🎯 ACCESS & GOVERNANCE (Single Pane of Glass)"]
+        gw["Multi-Tenant Gateway (SSO / RBAC / Quotas)"]
+        grafana["🟠 Unified Grafana Enterprise / HA<br><i>Dropdown: [ All Clusters | AWS | GCP ]</i>"]
+        thanos --> gw
         loki --> gw
         tempo --> gw
         pyro --> gw

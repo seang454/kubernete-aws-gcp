@@ -107,66 +107,85 @@ When scaling to a **Big Project** (e.g., hundreds of microservices, multiple Kub
 
 ```mermaid
 flowchart TD
-    subgraph EdgeClusters["🌐 APPLICATION CLUSTERS (Prod-US, Prod-EU, Staging, Edge)"]
-        subgraph Cluster1["Kubernetes Cluster A (e.g. AWS EKS)"]
-            app1["Microservices & Daemons"]
-            alloy1["🟣 Grafana Alloy (Edge Agent)<br><i>• PII & Secret Redaction<br>• Metric Drop Rules<br>• Tail-Based Trace Sampling</i>"]
+    subgraph EdgeClusters["🌐 APPLICATION CLUSTERS (Multi-Cloud / Multi-Region)"]
+        subgraph Cluster1["Kubernetes Cluster 1 (AWS EKS / EC2)"]
+            app1["Microservices (OTel SDK) & Daemons"]
+            kps1["🔥 kube-prometheus-stack<br><i>(Prometheus + Node Exp + cAdvisor + KSM)</i>"]
+            thanosSidecar1["🛡️ Thanos Sidecar<br><i>(Uploads 2h TSDB blocks to S3)</i>"]
+            alloy1["🟣 Grafana Alloy (Edge Agent)<br><i>• Tails /var/log/pods<br>• PII & Secret Redaction<br>• Tail-Based Trace Sampling</i>"]
+            
             app1 --> alloy1
+            app1 -.->|Scraped Metrics| kps1
+            kps1 --- thanosSidecar1
         end
 
-        subgraph Cluster2["Kubernetes Cluster B (e.g. GCP GKE)"]
-            app2["Microservices & Daemons"]
-            alloy2["🟣 Grafana Alloy (Edge Agent)<br><i>• PII & Secret Redaction<br>• Metric Drop Rules<br>• Tail-Based Trace Sampling</i>"]
+        subgraph Cluster2["Kubernetes Cluster 2 (GCP GKE / GCE)"]
+            app2["Microservices (OTel SDK) & Daemons"]
+            kps2["🔥 kube-prometheus-stack<br><i>(Prometheus + Node Exp + cAdvisor + KSM)</i>"]
+            thanosSidecar2["🛡️ Thanos Sidecar<br><i>(Uploads 2h TSDB blocks to GCS/S3)</i>"]
+            alloy2["🟣 Grafana Alloy (Edge Agent)<br><i>• Tails /var/log/pods<br>• PII & Secret Redaction<br>• Tail-Based Trace Sampling</i>"]
+            
             app2 --> alloy2
+            app2 -.->|Scraped Metrics| kps2
+            kps2 --- thanosSidecar2
         end
     end
 
-    subgraph StreamingBuffer["⚡ RESILIENCE & SPIKE PROTECTION BUFFER"]
-        kafka["📨 Apache Kafka / AWS Kinesis / Pulsar<br><i>(Absorbs 50x outage retry storms without losing logs/traces)</i>"]
-        alloy1 -->|Buffered OTLP / Chunks| kafka
-        alloy2 -->|Buffered OTLP / Chunks| kafka
+    subgraph StreamingBuffer["⚡ RESILIENCE & SPIKE BUFFER (For Logs, Traces & Profiles)"]
+        kafka["📨 Apache Kafka / Redpanda<br><i>(Absorbs 50x outage retry storms without losing logs/traces)</i>"]
+        alloy1 -->|Clean Logs, Traces & Profiles| kafka
+        alloy2 -->|Clean Logs, Traces & Profiles| kafka
+    end
+
+    subgraph ObjectStorage["☁️ CLOUD OBJECT STORAGE DATA LAKE (Pennies / GB / Month)"]
+        s3Metrics[("🪣 AWS S3 / GCS: Metrics Bucket<br><i>(Thanos 2h Blocks + Downsampled 5m/1h Rollups)</i>")]
+        s3LogsTraces[("🪣 AWS S3 / GCS: Logs & Traces Bucket<br><i>(Loki Log Chunks & Tempo Trace Parquet)</i>")]
     end
 
     subgraph CentralPlatform["🏢 DEDICATED CENTRAL OBSERVABILITY PLATFORM (HA & Distributed)"]
-        subgraph DistributedEngines["Distributed Microservices Storage (Auto-Scaling Pods)"]
-            distMimir["🔥 Grafana Mimir / Thanos HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Compactor)</i>"]
+        subgraph ThanosStack["🔥 Thanos Global Metrics Engine"]
+            thanosQ["Thanos Querier<br><i>(Global PromQL Deduplication & Query Engine)</i>"]
+            thanosStore["Thanos Store Gateway<br><i>(Queries Historical S3 Data)</i>"]
+            thanosComp["Thanos Compactor<br><i>(Downsamples: Raw ➔ 5m ➔ 1h)</i>"]
+        end
+
+        subgraph DistributedEngines["🟠 Distributed Log & Trace Storage (Microservices Mode)"]
             distLoki["🟠🟡 Grafana Loki HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Index Gateway)</i>"]
             distTempo["🟠 Grafana Tempo HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Compactor)</i>"]
-            distPyro["🟠 Grafana Pyroscope HA<br><i>(eBPF Profile Distributors & Aggregators)</i>"]
-        end
-
-        subgraph ObjectStorageLake["Cloud Object Storage Data Lake (Cost: ~$0.02/GB/mo)"]
-            s3Lake[("AWS S3 / Google Cloud Storage / MinIO<br><i>Parquet Files, TSDB Chunks, Trace Blocks<br>(Years of Historical Retention)</i>")]
+            distPyro["🟠 Grafana Pyroscope HA<br><i>(Profile Ingesters & Aggregators)</i>"]
         end
     end
 
-    subgraph GlobalGovernance["🎯 GOVERNANCE, SECURITY & VISUALIZATION"]
-        gw["Multi-Tenant Ingress Gateway<br><i>(Enforces X-Scope-OrgID, Ingestion Quotas, TLS mTLS)</i>"]
-        grafanaHA["🟠 Grafana Enterprise / HA Cluster<br><i>(SAML/OIDC SSO, Team RBAC, Distributed Caching)</i>"]
-        alerts["Alertmanager HA<br><i>(PagerDuty, Slack, OpsGenie)</i>"]
+    subgraph GlobalUI["🎯 GLOBAL VISUALIZATION & GOVERNANCE (Single Pane of Glass)"]
+        gw["Multi-Tenant Gateway<br><i>(SSO / RBAC / Quota Enforcement)</i>"]
+        grafana["🟠 Unified Grafana Enterprise / HA<br><i>Dropdown Filter: [ All Clusters | AWS-Prod | GCP-Prod ]</i>"]
+        alerts["Global Alertmanager HA<br><i>(Slack / PagerDuty / OpsGenie)</i>"]
     end
 
-    %% Ingestion from Kafka into Engines
-    kafka --> distMimir
+    %% Metrics Flow (Thanos Sidecar -> S3 & Querier)
+    thanosSidecar1 -->|Uploads 2h TSDB Blocks| s3Metrics
+    thanosSidecar2 -->|Uploads 2h TSDB Blocks| s3Metrics
+    thanosSidecar1 -.->|gRPC Live Queries <2h| thanosQ
+    thanosSidecar2 -.->|gRPC Live Queries <2h| thanosQ
+    s3Metrics --> thanosStore
+    s3Metrics <--> thanosComp
+    thanosStore --> thanosQ
+
+    %% Logs & Traces Flows (Kafka -> Loki/Tempo/Pyroscope -> S3)
     kafka --> distLoki
     kafka --> distTempo
     kafka --> distPyro
+    distLoki --> s3LogsTraces
+    distTempo --> s3LogsTraces
+    distPyro --> s3LogsTraces
 
-    %% Engines store blocks in S3
-    distMimir --> s3Lake
-    distLoki --> s3Lake
-    distTempo --> s3Lake
-    distPyro --> s3Lake
-
-    %% Alerting
-    distMimir --> alerts
-
-    %% Reading through Multi-Tenant Gateway
-    distMimir --> gw
+    %% Global Queries into Grafana
+    thanosQ --> gw
     distLoki --> gw
     distTempo --> gw
     distPyro --> gw
-    gw --> grafanaHA
+    gw --> grafana
+    thanosQ --> alerts
 ```
 
 #### 📊 Architectural Differences: Small/Medium vs. Big Project
