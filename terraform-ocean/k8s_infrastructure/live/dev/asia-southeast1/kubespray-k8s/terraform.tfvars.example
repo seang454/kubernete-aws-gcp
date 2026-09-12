@@ -1,0 +1,98 @@
+# GCP Configuration
+project_id = "YOUR_GCP_PROJECT_ID"
+region     = "asia-east1"
+zone       = "asia-east1-a"
+
+# Kubespray cluster topology (can configure any combination across GCP and AWS):
+gcp_control_plane_count = 2
+aws_control_plane_count = 1
+gcp_worker_count        = 0
+aws_worker_count        = 4
+
+# AWS Configuration
+aws_region                  = "ap-southeast-1"
+aws_profile                 = ""
+aws_shared_credentials_file = "" # Optional: e.g. "~/.aws/credentials" or custom path
+aws_shared_config_file      = "" # Optional: e.g. "~/.aws/config" or custom path
+aws_worker_instance_types    = ["t3.medium"]
+aws_worker_root_disk_size_gb = 30
+aws_worker_root_disk_type    = "gp3"
+aws_allocate_elastic_ips     = true
+aws_vpc_cidr                 = "172.31.0.0/16"
+aws_source_dest_check        = false
+
+cluster_name         = "kubespray"
+instance_name_prefix = "k8s"
+
+control_plane_name_prefix = "master"
+worker_name_prefix        = "worker"
+
+# Use WireGuard full-mesh overlay IPs (10.0.0.1 - 10.0.0.x) for Kubespray cluster traffic
+use_wireguard_ip     = true
+
+# Cross-cloud network mode: fallback when use_wireguard_ip is false
+use_public_access_ip = true
+
+# Desired VM power state: "RUNNING" or "TERMINATED"
+desired_status = "RUNNING"
+
+# Permanently delete/destroy specific instances:
+exclude_nodes = []
+
+# Temporarily power off specific instances (without deleting VM, disks, or IP):
+stop_nodes = []
+
+# Exclude stopped nodes from inventory so Kubespray doesn't time out:
+exclude_stopped_nodes_from_inventory = true
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+ansible_user                 = ""
+ansible_ssh_private_key_file = "~/.ssh/id_rsa"
+ansible_python_interpreter   = "/usr/bin/python3"
+ansible_ssh_extra_args       = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+# ---------------------------------------------------------------------------
+# Internal Private Cluster Subnet (WireGuard + Kubernetes Pods + Services)
+# ---------------------------------------------------------------------------
+# 10.0.0.0/8 allows all internal cluster traffic over the encrypted WireGuard tunnel.
+# Covers node WireGuard IPs (10.0.0.x), Pods (10.233.64.0/18), and Services (10.233.0.0/18).
+internal_source_ranges = ["10.0.0.0/8"]
+
+# Core overrides (keep empty [] to manage cleanly in custom_firewall_rules)
+ssh_source_ranges            = []
+kubernetes_api_source_ranges = []
+wireguard_source_ranges      = []
+kubelet_source_ranges        = []
+nodeport_source_ranges       = []
+
+# Unified firewall rules (Single-list pattern)
+custom_firewall_rules = [
+  {
+    name          = "allow-ssh"
+    protocol      = "tcp"
+    ports         = ["22"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  },
+  {
+    name          = "allow-wireguard"
+    protocol      = "udp"
+    ports         = ["51820"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  },
+  {
+    name          = "allow-kube-api"
+    protocol      = "tcp"
+    ports         = ["6443"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "control_plane"
+  },
+  {
+    name          = "allow-http-https"
+    protocol      = "tcp"
+    ports         = ["80", "443"]
+    source_ranges = ["0.0.0.0/0"]
+    target        = "all"
+  }
+]

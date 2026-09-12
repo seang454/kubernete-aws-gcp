@@ -1,0 +1,10 @@
+---
+# =============================================================================
+# Verification Playbook: Test WireGuard Status, Handshakes, and Ping
+# =============================================================================
+
+- name: Verify WireGuard Mesh Across All Nodes (100% Quality Gate)
+  hosts: wireguard
+  gather_facts: false
+  roles:
+    - role: wireguard_test

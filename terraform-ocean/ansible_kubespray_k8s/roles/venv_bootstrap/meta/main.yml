@@ -1,0 +1,6 @@
+galaxy_info:
+  role_name: gcp_bootstrap
+  author: seang
+  description: Sets up GCP tooling, virtualenvs and kubespray for a control node
+  min_ansible_version: "2.14"
+dependencies: []

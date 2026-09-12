@@ -1,0 +1,130 @@
+---
+# =============================================================================
+# Role: common
+# 1. Installs WireGuard packages and dependencies
+# 2. Enables Kernel IP Forwarding (RAM sysctl + Disk /etc/sysctl.conf)
+# 3. Generates WireGuard private & public keys
+# 4. Reads and registers keys as Ansible host facts for mesh configuration
+# =============================================================================
+
+- name: Update apt cache and install WireGuard packages
+  ansible.builtin.apt:
+    name: "{{ wireguard_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: apt_install
+  retries: 5
+  delay: 5
+  until: apt_install is success
+
+# -----------------------------------------------------------------------------
+# Step 7.1: Enable Kernel IPv4 Forwarding (RAM + Disk)
+# -----------------------------------------------------------------------------
+- name: Enable IPv4 forwarding via sysctl (Live RAM + /etc/sysctl.conf)
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_set: true
+    state: present
+    reload: true
+  ignore_errors: true
+
+- name: Ensure net.ipv4.ip_forward=1 in /etc/sysctl.d/99-wireguard.conf
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-wireguard.conf
+    content: |
+      # WireGuard router mode: allow kernel packet forwarding
+      net.ipv4.ip_forward = 1
+    mode: '0644'
+    owner: root
+    group: root
+
+- name: Reload sysctl configuration from disk
+  ansible.builtin.command:
+    cmd: sysctl --system
+  changed_when: false
+
+# -----------------------------------------------------------------------------
+# WireGuard Key Management
+# -----------------------------------------------------------------------------
+- name: Ensure WireGuard configuration directory exists
+  ansible.builtin.file:
+    path: "{{ wireguard_conf_dir }}"
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Check if WireGuard private key already exists
+  ansible.builtin.stat:
+    path: "{{ wireguard_conf_dir }}/privatekey"
+  register: wg_private_key_stat
+
+- name: Generate WireGuard private key
+  ansible.builtin.shell:
+    cmd: "umask 077 && wg genkey > {{ wireguard_conf_dir }}/privatekey"
+  when: not wg_private_key_stat.stat.exists
+
+- name: Ensure correct permissions on private key
+  ansible.builtin.file:
+    path: "{{ wireguard_conf_dir }}/privatekey"
+    mode: '0600'
+    owner: root
+    group: root
+
+- name: Check if WireGuard public key already exists
+  ansible.builtin.stat:
+    path: "{{ wireguard_conf_dir }}/publickey"
+  register: wg_public_key_stat
+
+- name: Generate WireGuard public key from private key
+  ansible.builtin.shell:
+    cmd: "wg pubkey < {{ wireguard_conf_dir }}/privatekey > {{ wireguard_conf_dir }}/publickey"
+  when: not wg_public_key_stat.stat.exists
+
+- name: Ensure correct permissions on public key
+  ansible.builtin.file:
+    path: "{{ wireguard_conf_dir }}/publickey"
+    mode: '0644'
+    owner: root
+    group: root
+
+# -----------------------------------------------------------------------------
+# Read keys and register facts for peer mesh exchange
+# -----------------------------------------------------------------------------
+- name: Read private key from node
+  ansible.builtin.slurp:
+    src: "{{ wireguard_conf_dir }}/privatekey"
+  register: slurp_priv_key
+
+- name: Read public key from node
+  ansible.builtin.slurp:
+    src: "{{ wireguard_conf_dir }}/publickey"
+  register: slurp_pub_key
+
+- name: Set WireGuard key facts on node
+  ansible.builtin.set_fact:
+    wireguard_private_key: "{{ slurp_priv_key.content | b64decode | trim }}"
+    wireguard_public_key: "{{ slurp_pub_key.content | b64decode | trim }}"
+
+- name: Ensure local keys backup directory exists on controller
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/keys"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Save public key copy to controller
+  ansible.builtin.copy:
+    content: "{{ wireguard_public_key }}\n"
+    dest: "{{ playbook_dir }}/keys/{{ inventory_hostname }}.pub"
+    mode: '0644'
+  delegate_to: localhost
+  become: false
+
+- name: Display node WireGuard key and assigned IP
+  ansible.builtin.debug:
+    msg: "Node: {{ inventory_hostname }} | WireGuard IP: {{ wireguard_ip }} | Public Key: {{ wireguard_public_key }}"

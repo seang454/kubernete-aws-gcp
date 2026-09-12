@@ -1,0 +1,25 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install system packages required for Kubespray and GCP tooling
+  ansible.builtin.apt:
+    name:
+      - python3-pip
+      - python3-venv
+      - python3-dev
+      - build-essential
+      - git
+      - curl
+    state: present
+
+- name: Install google.cloud Ansible collection
+  ansible.builtin.command:
+    cmd: >
+      ansible-galaxy collection install google.cloud
+      -p {{ ansible_collections_path }}
+      --force
+  become: false
+  changed_when: true

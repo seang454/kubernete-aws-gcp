@@ -1,0 +1,45 @@
+---
+# =============================================================================
+# Role: wireguard
+# 1. Deploys /etc/wireguard/{{ wireguard_interface }}.conf with all peers
+# 2. Enables and starts wg-quick@{{ wireguard_interface }} systemd service
+# 3. Verifies virtual interface wg0 exists
+# =============================================================================
+
+- name: Deploy WireGuard configuration file
+  ansible.builtin.template:
+    src: wg0.conf.j2
+    dest: "{{ wireguard_conf_dir }}/{{ wireguard_interface }}.conf"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: restart wireguard
+
+- name: Flush handlers to apply WireGuard configuration changes immediately
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start WireGuard systemd service (wg-quick@{{ wireguard_interface }})
+  ansible.builtin.systemd:
+    name: "wg-quick@{{ wireguard_interface }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Verify WireGuard interface is up
+  ansible.builtin.command:
+    cmd: "ip addr show dev {{ wireguard_interface }}"
+  register: ip_addr_output
+  changed_when: false
+  retries: 3
+  delay: 2
+  until: ip_addr_output.rc == 0
+
+- name: Capture WireGuard status via wg show
+  ansible.builtin.command:
+    cmd: wg show
+  register: wg_status
+  changed_when: false
+
+- name: Display WireGuard status
+  ansible.builtin.debug:
+    msg: "{{ wg_status.stdout_lines }}"

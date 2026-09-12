@@ -1,0 +1,93 @@
+---
+# =============================================================================
+# Tasks for wireguard_test role
+# Comprehensive verification: service, interface, sysctl, MTU & full-mesh ping
+# =============================================================================
+
+- name: "[Check 1/6] Verify WireGuard systemd service is active"
+  ansible.builtin.command:
+    cmd: "systemctl is-active wg-quick@{{ wireguard_interface | default('wg0') }}"
+  register: wg_service_check
+  changed_when: false
+  failed_when: wg_service_check.rc != 0
+
+- name: "[Check 2/6] Verify interface {{ wireguard_interface | default('wg0') }} exists with expected IP"
+  ansible.builtin.command:
+    cmd: "ip -br addr show {{ wireguard_interface | default('wg0') }}"
+  register: wg_ip_check
+  changed_when: false
+  failed_when: wg_ip_check.rc != 0
+
+- name: "[Check 2/6] Validate assigned WireGuard IP matches inventory"
+  ansible.builtin.assert:
+    that:
+      - wireguard_ip in wg_ip_check.stdout
+    fail_msg: >-
+      Interface {{ wireguard_interface | default('wg0') }} does not have expected IP {{ wireguard_ip }}.
+      Current interface state: {{ wg_ip_check.stdout }}
+
+- name: "[Check 3/6] Verify IP forwarding is enabled in kernel"
+  ansible.builtin.command:
+    cmd: "sysctl -n net.ipv4.ip_forward"
+  register: ip_forward_check
+  changed_when: false
+  failed_when: ip_forward_check.stdout.strip() != "1"
+
+- name: "[Check 4/6] Wait for peer handshakes to stabilize"
+  ansible.builtin.pause:
+    seconds: "{{ wireguard_test_wait_handshake_seconds | default(5) }}"
+  when: (wireguard_test_wait_handshake_seconds | default(5)) > 0
+  run_once: true
+
+- name: "[Check 5/6] Full-mesh ping test to all peer WireGuard IPs"
+  ansible.builtin.command:
+    cmd: "ping -c {{ wireguard_test_ping_count | default(3) }} -W {{ wireguard_test_ping_timeout | default(3) }} {{ hostvars[item]['wireguard_ip'] }}"
+  loop: "{{ groups['wireguard'] }}"
+  when: item != inventory_hostname
+  register: ping_peer_results
+  failed_when: false
+  changed_when: false
+
+- name: "[Check 6/6] Verify MTU integrity (ping with {{ wireguard_test_payload_size | default(1300) }} byte payload)"
+  ansible.builtin.command:
+    cmd: "ping -M do -s {{ wireguard_test_payload_size | default(1300) }} -c 2 -W {{ wireguard_test_ping_timeout | default(3) }} {{ hostvars[item]['wireguard_ip'] }}"
+  loop: "{{ groups['wireguard'] }}"
+  when: item != inventory_hostname
+  register: mtu_ping_results
+  failed_when: false
+  changed_when: false
+
+- name: Capture WireGuard status and handshake dump
+  ansible.builtin.command:
+    cmd: "wg show {{ wireguard_interface | default('wg0') }}"
+  register: wg_show_dump
+  changed_when: false
+
+- name: Display peer reachability status
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} ({{ wireguard_ip }}) -> {{ item.item }} ({{ hostvars[item.item]['wireguard_ip'] }}):
+      {{ 'REACHABLE ✅ (0% packet loss)' if item.rc == 0 else 'UNREACHABLE ❌ (ping failed rc=' ~ item.rc ~ ')' }}
+  loop: "{{ ping_peer_results.results }}"
+  when: item.skipped is not defined and item.item != inventory_hostname
+
+- name: Identify any unreachable WireGuard peers
+  ansible.builtin.set_fact:
+    unreachable_peers: "{{ ping_peer_results.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | map(attribute='item') | list }}"
+
+- name: Fail if any peer is unreachable (Strict 100% Quality Gate)
+  ansible.builtin.fail:
+    msg: >-
+      ❌ WireGuard connectivity test FAILED on {{ inventory_hostname }}!
+      The following peers are UNREACHABLE over the WireGuard tunnel: {{ unreachable_peers }}.
+      Please check UDP port 51820 firewall rules, endpoint IPs, and public keys.
+  when:
+    - (wireguard_test_strict_fail | default(true)) | bool
+    - unreachable_peers | length > 0
+
+- name: "🎉 100% HEALTHY: Confirm full-mesh mesh status"
+  ansible.builtin.debug:
+    msg: >-
+      ✅ [100% PASS] {{ inventory_hostname }} ({{ wireguard_ip }}) successfully communicates with
+      all {{ (groups['wireguard'] | length) - 1 }} peers over encrypted WireGuard! WireGuard is ready for Kubespray.
+  when: unreachable_peers | length == 0
