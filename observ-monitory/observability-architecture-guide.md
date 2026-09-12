@@ -329,6 +329,51 @@ flowchart TD
 > 
 > **The Water Dam Analogy:** Kafka is like a **Hydroelectric Dam**. When a torrential hurricane hits (an outage), the dam absorbs the massive floodwaters and releases them through the spillway at a safe, controlled speed so the city below never drowns!
 
+#### 💡 Key Note: Where are Distributor, Ingester, Querier, and Compactor in Diagram 1.1?
+
+> [!NOTE]
+> Those components (**Distributor, Ingester, Querier, Compactor**) **DO exist in Diagram 1.1 too!**
+> 
+> The difference is:
+> - **In Diagram 1.1 (Single-Binary Mode):** They are all **crammed into ONE single pod** as internal threads to keep resource usage low (<500MB RAM).
+> - **In Diagram 1.2 (Microservices Mode):** They are **split into separate, independent Kubernetes pods** that auto-scale independently.
+> 
+> ```text
+> IN ARCHITECTURE 1.1 (The "All-in-One" Swiss Army Knife):
+> ┌─────────────────────────────────────────────────────────────┐
+> │ 📦 ONE SINGLE LOKI / MIMIR / TEMPO POD                      │
+> │                                                             │
+> │   [ Distributor Thread ]  <-- Validates incoming data       │
+> │   [ Ingester Thread ]     <-- Writes data to disk           │
+> │   [ Querier Thread ]      <-- Searches data for Grafana     │
+> │   [ Compactor Thread ]    <-- Cleans old files & organizes  │
+> └─────────────────────────────────────────────────────────────┘
+>   All 4 run inside the SAME process and share the same CPU & RAM!
+> 
+> 
+> IN ARCHITECTURE 1.2 (The Enterprise Microservices Split):
+> ┌───────────────────────────┐    ┌───────────────────────────┐
+> │ 📦 POD 1: Distributors    │    │ 📦 POD 2: Ingesters       │
+> │   (Auto-scales on writes) │    │   (High Disk & RAM cache) │
+> └───────────────────────────┘    └───────────────────────────┘
+> ┌───────────────────────────┐    ┌───────────────────────────┐
+> │ 📦 POD 3: Queriers        │    │ 📦 POD 4: Compactor       │
+> │   (Auto-scales on reads)  │    │   (Background S3 cleanup) │
+> └───────────────────────────┘    └───────────────────────────┘
+>   Each one is an INDEPENDENT Kubernetes Deployment that scales on its own!
+> ```
+> 
+> ### 🚨 Why Must You Split Them in Diagram 1.2 (Enterprise Scale)?
+> At enterprise scale, packing all 4 functions into one pod is dangerous because of **Heavy Query Outages**:
+> - **Scenario:** An engineer opens Grafana and runs a massive search across 90 days of logs: `{app="payment"} |= "error"`.
+> - **In 1.1 (Single Pod):** The query thread spikes CPU and RAM to 100%. The entire pod freezes and crashes (`OOMKilled`). While the pod is dead, **all incoming logs and metrics are lost**!
+> - **In 1.2 (Split Microservices):** Only the **Querier pod** spikes. The **Distributor** and **Ingester** pods run on completely different servers and keep saving data at full speed with **zero interruption**.
+> 
+> | Architecture | Analogy | Why? |
+> | :--- | :--- | :--- |
+> | **1.1 (Cluster-Level)** | **Swiss Army Knife** | Knife, scissors, and screwdriver folded into **one pocket tool**. Compact, lightweight (<500MB RAM), perfect for 1–10 nodes. |
+> | **1.2 (Enterprise)** | **Professional Workshop** | Dedicated workbench with separate saws, drills, and hammers. 50 workers can work simultaneously without blocking each other. |
+
 ---
 
 ## 2. The Three Pipelines in Detail
