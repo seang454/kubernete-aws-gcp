@@ -110,13 +110,13 @@ flowchart TD
     subgraph EdgeClusters["🌐 APPLICATION CLUSTERS (Prod-US, Prod-EU, Staging, Edge)"]
         subgraph Cluster1["Kubernetes Cluster A (e.g. AWS EKS)"]
             app1["Microservices & Daemons"]
-            alloy1["🟣 Edge Alloy Agent<br><i>• PII & Secret Redaction<br>• Metric Drop Rules<br>• Tail-Based Trace Sampling</i>"]
+            alloy1["🟣 Grafana Alloy (Edge Agent)<br><i>• PII & Secret Redaction<br>• Metric Drop Rules<br>• Tail-Based Trace Sampling</i>"]
             app1 --> alloy1
         end
 
         subgraph Cluster2["Kubernetes Cluster B (e.g. GCP GKE)"]
             app2["Microservices & Daemons"]
-            alloy2["🟣 Edge Alloy Agent<br><i>• PII & Secret Redaction<br>• Metric Drop Rules<br>• Tail-Based Trace Sampling</i>"]
+            alloy2["🟣 Grafana Alloy (Edge Agent)<br><i>• PII & Secret Redaction<br>• Metric Drop Rules<br>• Tail-Based Trace Sampling</i>"]
             app2 --> alloy2
         end
     end
@@ -211,7 +211,7 @@ flowchart TD
 > | :--- | :--- |
 > | **"Microservices"** | **`Microservice Apps (Instrumented with OpenTelemetry SDK)`** *(Your backend applications emitting traces, spans, and metrics).* |
 > | **"& Daemons"** | **`Node Exporter` + `cAdvisor` + `kube-state-metrics` + `Pyroscope Agent`** *(All the background Linux processes and system agents running on the machine).* |
-> | **"🟣 Edge Alloy Agent"** | **`🟣 Grafana Alloy`** *(The exact same software product, deployed as a DaemonSet at the cluster edge to scrub secrets, filter metrics, and tail-sample traces).* |
+> | **"🟣 Grafana Alloy (Edge Agent)"** | **`🟣 Grafana Alloy`** *(The exact same software product, deployed as a DaemonSet at the cluster edge to scrub secrets, filter metrics, and tail-sample traces).* |
 > 
 > **Key Takeaway:** In both architectures, your applications are **still instrumented with the OpenTelemetry SDK**, and they **still ship telemetry to Grafana Alloy**. Diagram 1.2 simply groups them together so the multi-cluster view remains clean and readable!
 
