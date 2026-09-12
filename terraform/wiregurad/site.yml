@@ -27,37 +27,8 @@
   roles:
     - role: wireguard
 
-- name: Phase 3 - Connectivity Verification & Handshake Validation
+- name: Phase 3 - Comprehensive 100% WireGuard Mesh Verification
   hosts: wireguard
   gather_facts: false
-  tasks:
-    - name: Wait for WireGuard handshakes to establish
-      ansible.builtin.pause:
-        seconds: 5
-
-    - name: Ping all peer WireGuard IPs from each machine
-      ansible.builtin.command:
-        cmd: "ping -c 3 -W 3 {{ hostvars[item]['wireguard_ip'] }}"
-      loop: "{{ groups['wireguard'] }}"
-      when: item != inventory_hostname
-      register: ping_results
-      failed_when: false
-      changed_when: false
-
-    - name: Display peer ping reachability
-      ansible.builtin.debug:
-        msg: >-
-          {{ inventory_hostname }} ({{ wireguard_ip }}) -> {{ item.item }} ({{ hostvars[item.item]['wireguard_ip'] }}):
-          {{ 'REACHABLE ✅' if item.rc == 0 else 'UNREACHABLE ❌ (rc=' ~ item.rc ~ ')' }}
-      loop: "{{ ping_results.results }}"
-      when: item.skipped is not defined and item.item != inventory_hostname
-
-    - name: Display latest WireGuard handshakes and transfer stats
-      ansible.builtin.command:
-        cmd: wg show
-      register: final_wg_show
-      changed_when: false
-
-    - name: Show wg show output
-      ansible.builtin.debug:
-        msg: "{{ final_wg_show.stdout_lines }}"
+  roles:
+    - role: wireguard_test

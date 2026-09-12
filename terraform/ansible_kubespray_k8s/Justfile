@@ -45,11 +45,12 @@ setup-iac:
 # -------------------------------------------------------
 deploy-k8s:
     @echo "Deploying Kubernetes cluster via Kubespray..."
-    ANSIBLE_LOCAL_TEMP=/tmp TMPDIR=/tmp \
+    cd kubespray && \
+      ANSIBLE_LOCAL_TEMP=/tmp TMPDIR=/tmp \
       {{KUBESPRAY_VENV}}/bin/ansible-playbook \
         -b -v \
-        -i {{KUBESPRAY_INVENTORY}} \
-        kubespray/cluster.yml 2>&1 | tee /tmp/kubespray-deploy.log
+        -i inventory/sample/inventory.ini \
+        cluster.yml 2>&1 | tee /tmp/kubespray-deploy.log
 
 # -------------------------------------------------------
 # Reset (wipe) the Kubernetes cluster on existing VMs

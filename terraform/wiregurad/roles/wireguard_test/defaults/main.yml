@@ -1,0 +1,10 @@
+---
+# =============================================================================
+# Defaults for wireguard_test role
+# =============================================================================
+wireguard_interface: wg0
+wireguard_test_ping_count: 3
+wireguard_test_ping_timeout: 3
+wireguard_test_payload_size: 1300
+wireguard_test_strict_fail: true
+wireguard_test_wait_handshake_seconds: 5

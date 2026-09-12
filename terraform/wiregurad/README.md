@@ -37,13 +37,16 @@ wiregurad/
 |   |-- common/                     # Role 1: Installs WG, enables IP forwarding, generates keys
 |   |   |-- defaults/main.yml
 |   |   `-- tasks/main.yml
-|   `-- wireguard/                  # Role 2: Full-mesh wg0.conf template & systemd service
+|   |-- wireguard/                  # Role 2: Full-mesh wg0.conf template & systemd service
+|   |   |-- defaults/main.yml
+|   |   |-- handlers/main.yml
+|   |   |-- tasks/main.yml
+|   |   `-- templates/wg0.conf.j2   # Full-mesh peer template
+|   `-- wireguard_test/             # Role 3: 100% Quality Gate (Service, IP, MTU & full-mesh ping)
 |       |-- defaults/main.yml
-|       |-- handlers/main.yml
-|       |-- tasks/main.yml
-|       `-- templates/wg0.conf.j2   # Full-mesh peer template
-|-- site.yml                        # Main deployment playbook
-|-- verify.yml                      # Handshake and ping verification playbook
+|       `-- tasks/main.yml
+|-- site.yml                        # Main deployment playbook (includes wireguard_test)
+|-- verify.yml                      # Dedicated verification playbook (runs wireguard_test)
 |-- run-wireguard.sh                # One-click execution script
 `-- README.md
 ```

@@ -12,7 +12,7 @@
 # ---------------------------------------------------------------------------
 
 # SSH / connection
-ansible_ssh_extra_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+ansible_ssh_extra_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o TCPKeepAlive=yes"
 
 # Kubespray paths
 # kubespray/ is a sibling of playbook/ inside ansible_kubespray_k8s/

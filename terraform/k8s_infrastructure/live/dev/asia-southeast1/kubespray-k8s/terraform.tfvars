@@ -156,10 +156,12 @@ ssh_user            = "seang"
 ssh_public_key_path = "~/.ssh/id_rsa.pub"
 
 # SSH/private key values written into the inventories.
+# [CLIENT-SIDE KEEP-ALIVE]: Tells your local SSH client/Ansible to ping the remote
+# servers every 30s so NAT firewalls do not drop idle connections during long plays.
 ansible_user                 = ""
 ansible_ssh_private_key_file = "~/.ssh/id_rsa"
 ansible_python_interpreter   = "/usr/bin/python3"
-ansible_ssh_extra_args       = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+ansible_ssh_extra_args       = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o TCPKeepAlive=yes"
 
 # Inventory paths
 kubespray_inventory_path = "../../../../../ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini"

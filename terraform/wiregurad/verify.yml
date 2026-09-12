@@ -3,49 +3,8 @@
 # Verification Playbook: Test WireGuard Status, Handshakes, and Ping
 # =============================================================================
 
-- name: Verify WireGuard Mesh Across All Nodes
+- name: Verify WireGuard Mesh Across All Nodes (100% Quality Gate)
   hosts: wireguard
   gather_facts: false
-  tasks:
-    - name: Check systemd service status
-      ansible.builtin.command:
-        cmd: systemctl is-active wg-quick@{{ wireguard_interface | default('wg0') }}
-      register: wg_service_status
-      changed_when: false
-
-    - name: Check Kernel IP forwarding parameter
-      ansible.builtin.command:
-        cmd: sysctl net.ipv4.ip_forward
-      register: sysctl_check
-      changed_when: false
-
-    - name: Display service and sysctl status
-      ansible.builtin.debug:
-        msg: "Node: {{ inventory_hostname }} | Service: {{ wg_service_status.stdout }} | Sysctl: {{ sysctl_check.stdout }}"
-
-    - name: Run wg show on node
-      ansible.builtin.command:
-        cmd: wg show
-      register: wg_show_out
-      changed_when: false
-
-    - name: Display wg show output
-      ansible.builtin.debug:
-        msg: "{{ wg_show_out.stdout_lines }}"
-
-    - name: "Test connectivity: Ping all other WireGuard peers"
-      ansible.builtin.command:
-        cmd: "ping -c 3 -W 3 {{ hostvars[item]['wireguard_ip'] }}"
-      loop: "{{ groups['wireguard'] }}"
-      when: item != inventory_hostname
-      register: ping_check
-      failed_when: false
-      changed_when: false
-
-    - name: Summary of peer reachability
-      ansible.builtin.debug:
-        msg: >-
-          {{ inventory_hostname }} -> {{ item.item }} ({{ hostvars[item.item]['wireguard_ip'] }}):
-          {{ 'REACHABLE ✅' if item.rc == 0 else 'UNREACHABLE ❌' }}
-      loop: "{{ ping_check.results }}"
-      when: item.skipped is not defined and item.item != inventory_hostname
+  roles:
+    - role: wireguard_test
