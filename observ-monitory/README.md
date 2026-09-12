@@ -2,89 +2,108 @@
 
 This Ansible project automates the deployment, verification, and teardown of the complete cloud-native observability stack for Kubernetes, covering **Metrics**, **Logs**, and **Distributed Traces**.
 
-For detailed architecture diagrams and component relationships, see the [Observability Architecture Guide](./observability-architecture-guide.md).
+For complete architecture diagrams and deep-dive explanations, see the [Observability Architecture Guide](./observability-architecture-guide.md).
 
 ---
 
-## 📁 Modular Roles Architecture
-
-Each component has its own dedicated role following its suitable Kubernetes deployment model:
+## 📁 Project Structure
 
 ```text
 observ-monitory/
-├── ansible.cfg                    # Ansible configuration with keepalives
-├── inventory.ini                  # Hybrid K8s Cluster Inventory (GCP + AWS)
-├── site.yml                       # Master deploy playbook (Runs all 5 roles + verify)
-├── verify.yml                     # Automated health verification playbook
-├── uninstall.yml                  # Teardown playbook wiping monitoring & freeing resources
+├── ansible.cfg                          # Ansible configuration with SSH keepalives
+├── inventory.ini                        # Hybrid K8s Cluster Inventory (GCP + AWS)
+├── site.yml                             # Master deploy playbook (Runs all roles + verify)
+├── verify.yml                           # Automated health verification playbook
+├── uninstall.yml                        # Teardown playbook wiping monitoring & freeing resources
 ├── group_vars/
-│   └── all.yml                    # Global toggles, storage classes, credentials, domains
+│   └── all.yml                          # Global toggles, storage classes, credentials, domains
 ├── roles/
-│   ├── prometheus_stack/          # Metrics: Prometheus, Alertmanager, Grafana, Node Exporter, kube-state-metrics, cAdvisor
-│   ├── loki_stack/                # Logs: Loki (StatefulSet) + Promtail (DaemonSet)
-│   ├── jaeger/                    # Traces: Jaeger Tracing Backend & Query UI (Deployment)
-│   ├── opentelemetry/             # Telemetry Pipeline: OpenTelemetry Collector (Deployment)
-│   └── grafana_dashboards/        # UI: Curated dashboards for Cluster, Nodes, Pods, Logs, Traces
+│   ├── prometheus_stack/                # Role 1: Metrics & Alerting Engine
+│   ├── loki_stack/                      # Role 2: Log Aggregation Engine
+│   ├── jaeger/                          # Role 3: Distributed Tracing Backend
+│   ├── opentelemetry/                   # Role 4: Telemetry Pipeline Router
+│   ├── grafana_dashboards/              # Role 5: Curated Visual Dashboards
+│   ├── host_observability/              # Role 6: Non-K8s External Host Exporters (Alloy + Node Exporter)
+│   └── ceph_observability/              # Role 7: External Ceph Cluster Exporter
 └── observability-architecture-guide.md
 ```
 
 ---
 
-## 🚀 Execution Instructions
+## 📦 What Each Role Installs & When to Use It
 
-### 1. Deploy the Complete Monitoring Stack
-Deploys Prometheus, Alertmanager, Grafana, Node Exporter, kube-state-metrics, Loki, Promtail, Jaeger, and OpenTelemetry Collector:
-```bash
-cd observ-monitory
-ansible-playbook -i inventory.ini site.yml
-```
-
-### 2. Verify System Health & Pod Status
-Checks that all 10 observability components, DaemonSets on all 7 nodes, and datasources are running:
-```bash
-cd observ-monitory
-ansible-playbook -i inventory.ini verify.yml
-```
-
-### 3. Uninstall & Clean Up Cluster
-Uninstalls all Helm releases, deletes the `monitoring` namespace, and frees up all CPU, RAM, and storage:
-```bash
-cd observ-monitory
-ansible-playbook -i inventory.ini uninstall.yml
-```
+### 1. `roles/prometheus_stack` (Inside Kubernetes)
+* **What it installs:**
+  * **Prometheus Operator**: Manages Prometheus and Alertmanager lifecycle via CRDs.
+  * **Prometheus**: Time-series metrics database (`StatefulSet` with Longhorn PVC storage, port `9090`).
+  * **Alertmanager**: Deduplicates and routes alerts to Slack/PagerDuty/Email (`StatefulSet`, port `9093`).
+  * **Grafana**: Unified visualization dashboard UI (`Deployment`, port `3000`).
+  * **Node Exporter**: DaemonSet pod running on **all 7 Kubernetes nodes** to collect host CPU, RAM, disk, and network stats (port `9100`).
+  * **kube-state-metrics**: Deployment pod polling the Kubernetes API server for Pod, Deployment, and PVC health (port `8080`).
+  * **cAdvisor integration**: Configures scraping of container cgroup metrics directly from `kubelet` on each node (port `10250`).
+* **Deployment Method:** Helm chart `prometheus-community/kube-prometheus-stack`.
+* **When to use:** Required for all Kubernetes metrics, hardware monitoring, and Grafana dashboards.
 
 ---
 
-## ⚙️ Component Configuration (`group_vars/all.yml`)
+### 2. `roles/loki_stack` (Inside Kubernetes)
+* **What it installs:**
+  * **Loki**: Cloud-native log aggregation database (`StatefulSet` with Longhorn PVC storage, port `3100`).
+  * **Promtail**: DaemonSet pod running on **all 7 Kubernetes nodes** tailing container stdout/stderr logs from `/var/log/pods/`.
+  * **Grafana Datasource ConfigMap**: Auto-wires Loki as a data source into Grafana with label `grafana_datasource: "1"`.
+* **Deployment Method:** Helm chart `grafana/loki-stack`.
+* **When to use:** Required for centralized container and application log collection with LogQL search in Grafana.
 
-You can enable or disable any role independently in `group_vars/all.yml`:
+---
 
-```yaml
-enable_prometheus_stack: true    # Metrics (Prometheus + Alertmanager + Grafana + Exporters)
-enable_loki_stack: true          # Logs (Loki + Promtail)
-enable_jaeger: true              # Traces (Jaeger)
-enable_opentelemetry: true       # OTel Collector pipeline
-enable_grafana_dashboards: true  # Pre-built Dashboards
-```
+### 3. `roles/jaeger` (Inside Kubernetes)
+* **What it installs:**
+  * **Jaeger All-in-One**: Distributed tracing backend and query engine (`Deployment`, image `jaegertracing/all-in-one:1.64.0`).
+  * **Jaeger Service**: Exposes port `16686` (Web Query UI), port `4317` (OTLP gRPC), and port `4318` (OTLP HTTP).
+  * **Grafana Datasource ConfigMap**: Auto-wires Jaeger as a tracing data source into Grafana with label `grafana_datasource: "1"`.
+* **Deployment Method:** Kubernetes native `Deployment` and `Service` manifests.
+* **When to use:** Required for distributed microservice tracing, latency waterfall views, and service dependency maps.
 
-### Storage Configuration (Longhorn by default)
-```yaml
-default_storage_class: "longhorn"
+---
 
-prometheus_storage:
-  storage_class:
-    enabled: true
-    name: "longhorn"
-    size: "15Gi"
-  retention: "15d"
+### 4. `roles/opentelemetry` (Inside Kubernetes)
+* **What it installs:**
+  * **OpenTelemetry Collector**: Universal telemetry proxy and pipeline (`Deployment`, image `otel/opentelemetry-collector-contrib:0.118.0`).
+  * **Pipeline Configuration**: Receives application traces and metrics over OTLP (`4317` gRPC / `4318` HTTP). Batches and routes traces to Jaeger and exposes metrics on port `8889` for Prometheus.
+  * **OTel Service**: Exposes `otel-collector` inside the cluster so applications can send telemetry to `http://otel-collector.monitoring.svc:4317`.
+* **Deployment Method:** Kubernetes native `Deployment`, `ConfigMap`, and `Service` manifests.
+* **When to use:** Required when microservices instrumented with OpenTelemetry SDK need a central collector to receive and route telemetry.
 
-loki_storage:
-  storage_class:
-    enabled: true
-    name: "longhorn"
-    size: "15Gi"
-  retention: "168h"              # 7 days
-```
+---
+
+### 5. `roles/grafana_dashboards` (Inside Kubernetes)
+* **What it installs:**
+  * Curated, pre-built visual dashboards deployed as Kubernetes `ConfigMaps` with the label `grafana_dashboard: "1"`.
+  * Grafana's dashboard sidecar automatically detects these ConfigMaps and imports them into Grafana:
+    * **Loki Log Engine Dashboard**
+    * **Ingress / Web Traffic Dashboard**
+    * **Ceph Storage Cluster Dashboard** (if Ceph is enabled)
+    * **NFS-Ganesha Storage Dashboard** (if Ganesha is enabled)
+    * **MinIO S3 Storage Dashboard** (if MinIO is enabled)
+* **Deployment Method:** Kubernetes `ConfigMap` resources.
+* **When to use:** Provides instant out-of-the-box visualization without manual JSON dashboard imports.
+
+---
+
+### 6. `roles/host_observability` (OUTSIDE Kubernetes — Standalone VMs)
+* **What it installs:**
+  * **prometheus-node-exporter**: Installs Node Exporter via `apt` as a Linux background `systemd` service on port `9100`.
+  * **Grafana Alloy**: Installs Alloy via `apt` as a Linux background `systemd` service to tail `/var/log/syslog` on the host VM and stream logs into Loki.
+* **Deployment Method:** Linux APT package management and systemd service management.
+* **When to use:** Only used for **external, bare-metal, or standalone servers OUTSIDE Kubernetes** (e.g. standalone database VMs, Ceph storage nodes) that cannot run Kubernetes pods. If all your servers are Kubernetes nodes, this role is not needed.
+
+---
+
+### 7. `roles/ceph_observability` (OUTSIDE Kubernetes — Ceph Storage)
+* **What it installs:**
+  * Enables the Ceph Manager Prometheus exporter module (`ceph mgr module enable prometheus`) on port `9283`.
+* **Deployment Method:** Ceph administrative CLI commands.
+* **When to use:** Only used if you run an external Ceph storage cluster and want Prometheus to scrape pool health, OSD status, and IOPS.
 
 ---
 
@@ -111,3 +130,28 @@ loki_storage:
 * **Resource Footprint:** Elasticsearch + Kibana requires **8GB to 16GB+ of RAM** just to idle. Because your worker nodes are lightweight cloud instances (`t3.small`), running Elasticsearch would cause immediate **Out-Of-Memory (OOM) crashes**.
 * **Efficiency:** Loki + Grafana gives you the exact same log aggregation, search, and dashboard capabilities using **less than 1GB of RAM**.
 * **Unified UI:** All logs collected by Promtail go directly into Loki, and you search them inside **Grafana** right next to your Prometheus metrics and Jaeger traces (single pane of glass)!
+
+---
+
+## 🚀 Execution Instructions
+
+### 1. Deploy the Complete Monitoring Stack
+Deploys Prometheus, Alertmanager, Grafana, Node Exporter, kube-state-metrics, Loki, Promtail, Jaeger, and OpenTelemetry Collector:
+```bash
+cd ~/kubernete-aws-gcp/observ-monitory
+ansible-playbook -i inventory.ini site.yml
+```
+
+### 2. Verify System Health & Pod Status
+Checks that all 10 observability components, DaemonSets on all 7 nodes, and datasources are running:
+```bash
+cd ~/kubernete-aws-gcp/observ-monitory
+ansible-playbook -i inventory.ini verify.yml
+```
+
+### 3. Uninstall & Clean Up Cluster
+Uninstalls all Helm releases, deletes the `monitoring` namespace, and frees up all CPU, RAM, and storage:
+```bash
+cd ~/kubernete-aws-gcp/observ-monitory
+ansible-playbook -i inventory.ini uninstall.yml
+```

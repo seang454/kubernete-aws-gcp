@@ -322,3 +322,66 @@ Once it completes, run the verification playbook to confirm all 10 components an
 ```bash
 ansible-playbook -i inventory.ini verify.yml
 ```
+
+---
+
+## 8. Role-by-Role Technical Specification: What Each Role Installs
+
+This section details the exact binaries, containers, ports, and deployment mechanisms for every role in the [`observ-monitory`](./README.md) project:
+
+### 1. `roles/prometheus_stack` (Inside Kubernetes)
+* **Components Installed:**
+  * **Prometheus Operator** (`Deployment`): Controller managing Prometheus and Alertmanager resources.
+  * **Prometheus** (`StatefulSet`): Metrics database with Longhorn PVC storage (`15Gi`, 15-day retention), port `9090`.
+  * **Alertmanager** (`StatefulSet`): Alert deduplication and routing engine, port `9093`.
+  * **Grafana** (`Deployment`): Dashboard UI on port `3000`, with sidecars for automatic datasource and dashboard discovery.
+  * **Node Exporter** (`DaemonSet`): Host OS hardware metrics collector on all 7 nodes, port `9100`.
+  * **kube-state-metrics** (`Deployment`): Kubernetes object health translator, port `8080`.
+  * **cAdvisor Scraping**: Scrapes container cgroup stats directly from node `kubelet` processes, port `10250`.
+* **Deployment Mechanism:** Helm chart `prometheus-community/kube-prometheus-stack`.
+
+### 2. `roles/loki_stack` (Inside Kubernetes)
+* **Components Installed:**
+  * **Loki** (`StatefulSet`): Cloud-native log database with Longhorn PVC storage (`15Gi`, 7-day retention), port `3100`.
+  * **Promtail** (`DaemonSet`): Log shipper running on all 7 nodes tailing `/var/log/pods/`.
+  * **Grafana Datasource ConfigMap**: Labeled `grafana_datasource: "1"` so Grafana auto-detects Loki.
+* **Deployment Mechanism:** Helm chart `grafana/loki-stack`.
+
+### 3. `roles/jaeger` (Inside Kubernetes)
+* **Components Installed:**
+  * **Jaeger All-in-One** (`Deployment`): In-memory distributed tracing storage and query backend (image `jaegertracing/all-in-one:1.64.0`).
+  * **Jaeger Service**: Exposes port `16686` (Query UI), port `4317` (OTLP gRPC), and port `4318` (OTLP HTTP).
+  * **Grafana Datasource ConfigMap**: Labeled `grafana_datasource: "1"` so Grafana auto-detects Jaeger.
+* **Deployment Mechanism:** Kubernetes native `Deployment` and `Service` manifests.
+
+### 4. `roles/opentelemetry` (Inside Kubernetes)
+* **Components Installed:**
+  * **OpenTelemetry Collector** (`Deployment`): Universal telemetry router (image `otel/opentelemetry-collector-contrib:0.118.0`).
+  * **Collector Pipelines**:
+    * **Traces**: Receives OTLP (`4317`/`4318`) ➔ batches ➔ exports to Jaeger (`jaeger.monitoring.svc:4317`).
+    * **Metrics**: Receives OTLP (`4317`/`4318`) ➔ batches ➔ exposes on port `8889` for Prometheus scraping.
+  * **OTel Service**: ClusterIP service exposing ports `4317`, `4318`, and `8889`.
+* **Deployment Mechanism:** Kubernetes native `Deployment`, `ConfigMap`, and `Service` manifests.
+
+### 5. `roles/grafana_dashboards` (Inside Kubernetes)
+* **Components Installed:**
+  * Curated dashboard ConfigMaps labeled `grafana_dashboard: "1"`:
+    * **Loki Log Engine Dashboard**
+    * **Ingress / Web Traffic Dashboard**
+    * **Ceph Storage Cluster Dashboard**
+    * **NFS-Ganesha Storage Dashboard**
+    * **MinIO S3 Storage Dashboard**
+* **Deployment Mechanism:** Kubernetes `ConfigMap` resources auto-loaded by Grafana sidecar.
+
+### 6. `roles/host_observability` (OUTSIDE Kubernetes — Standalone VMs)
+* **Components Installed:**
+  * **Node Exporter**: Installed via `apt install prometheus-node-exporter` as a systemd service on port `9100`.
+  * **Grafana Alloy**: Installed via `apt install alloy` as a systemd service on port `12345` to tail `/var/log/syslog`.
+* **Deployment Mechanism:** Linux APT package management and systemd service control.
+* **When to use:** Only for external bare-metal/VM servers outside Kubernetes.
+
+### 7. `roles/ceph_observability` (OUTSIDE Kubernetes — Ceph Storage)
+* **Components Installed:**
+  * Enables Ceph Manager Prometheus exporter module on port `9283`.
+* **Deployment Mechanism:** Ceph CLI command on Ceph manager nodes.
+* **When to use:** Only for external Ceph storage clusters.
