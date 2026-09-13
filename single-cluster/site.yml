@@ -8,10 +8,23 @@
   hosts: k8s_control_plane[0]
   become: false
   roles:
+    # 1. Backends & Storage Engines
     - { role: prometheus_stack, when: enable_prometheus_stack | default(true) }
     - { role: loki_stack, when: enable_loki_stack | default(true) }
     - { role: jaeger, when: enable_jaeger | default(true) }
-    - { role: opentelemetry, when: enable_opentelemetry | default(true) }
+    - { role: opensearch, when: enable_opensearch | default(true) }
+
+    # 2. Buffer, Streaming Queue & CDC
+    - { role: kafka, when: enable_kafka | default(false) }
+    - { role: schema_registry, when: enable_schema_registry | default(false) }
+    - { role: debezium, when: enable_debezium | default(false) }
+    - { role: kafka_ui, when: enable_kafka_ui | default(false) }
+
+    # 3. Universal Telemetry Shipper
+    - { role: alloy, when: enable_alloy | default(true) }
+    - { role: opentelemetry, when: enable_opentelemetry | default(false) }
+
+    # 4. Visualization & Dashboards
     - { role: grafana_dashboards, when: enable_grafana_dashboards | default(true) }
 
 - name: Automatically Verify All Services & Health

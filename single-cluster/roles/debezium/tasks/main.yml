@@ -1,0 +1,27 @@
+---
+# tasks file for debezium (Debezium Kafka Connect with Avro & CDC)
+
+- name: Ensure Kafka namespace exists
+  kubernetes.core.k8s:
+    name: "{{ kafka_namespace | default('kafka') }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Deploy Debezium Kafka Connect Manifests
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'debezium-connect.yaml.j2') | from_yaml_all | list }}"
+    state: present
+
+- name: Wait for Debezium Kafka Connect Pod to be Ready
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ kafka_namespace | default('kafka') }}"
+    label_selectors:
+      - "app.kubernetes.io/name={{ debezium_service_name | default('debezium-kafka-connect-itp') }}"
+  register: deb_pod
+  until: >
+    deb_pod.resources | length > 0 and
+    (deb_pod.resources[0].status.containerStatuses[0].ready | default(false))
+  retries: 30
+  delay: 10

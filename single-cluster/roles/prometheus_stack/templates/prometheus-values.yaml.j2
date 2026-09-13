@@ -16,8 +16,8 @@ prometheus:
   enabled: true
   prometheusSpec:
     retention: "{{ prometheus_storage.retention | default('15d') }}"
-    scrapeInterval: 15s
-    evaluationInterval: 15s
+    scrapeInterval: "{{ prometheus_scrape_interval | default('15s') }}"
+    evaluationInterval: "{{ prometheus_evaluation_interval | default('15s') }}"
     enableAdminAPI: true
 {% if prometheus_storage.storage_class.enabled | default(true) %}
     storageSpec:
@@ -37,7 +37,7 @@ prometheus:
 alertmanager:
   enabled: true
   alertmanagerSpec:
-    retention: "120h"
+    retention: "{{ alertmanager_retention | default('120h') }}"
 
 # Grafana Core UI (Deployment)
 grafana:
@@ -47,12 +47,12 @@ grafana:
   sidecar:
     dashboards:
       enabled: true
-      label: grafana_dashboard
+      label: {{ grafana_sidecar_dashboards_label | default('grafana_dashboard') }}
       labelValue: "1"
       searchNamespace: ALL
     datasources:
       enabled: true
-      label: grafana_datasource
+      label: {{ grafana_sidecar_datasources_label | default('grafana_datasource') }}
       labelValue: "1"
       searchNamespace: ALL
 {% if enable_ingress | default(false) %}
@@ -71,18 +71,18 @@ grafana:
 
 # Node Exporter (DaemonSet on every VM node)
 nodeExporter:
-  enabled: true
+  enabled: {{ enable_node_exporter | default(true) }}
   operatingSystems:
     linux:
       enabled: true
 
 # kube-state-metrics (Deployment polling Kubernetes API)
 kubeStateMetrics:
-  enabled: true
+  enabled: {{ enable_kube_state_metrics | default(true) }}
 
 # cAdvisor & kubelet scraping
 kubelet:
-  enabled: true
+  enabled: {{ enable_cadvisor | default(true) }}
   serviceMonitor:
     cAdvisor: true
     resource: true

@@ -1,50 +1,63 @@
 ---
 # ==============================================================================
-# Kubernetes Observability & Monitoring - Global Variables
+# Kubernetes Observability & Monitoring - Global Variables (Architecture 1.1)
+# Central Configuration File: All changeable fields across all roles
 # ==============================================================================
 
-# Environment
+# ------------------------------------------------------------------------------
+# 1. CLUSTER & NAMESPACE SETTINGS
+# ------------------------------------------------------------------------------
 env_environment: "production"
-
-# Target Namespace
-k8s_monitoring_namespace: "monitoring"
 kubeconfig_path: "/home/seang/.kube/config"
 
-# ==============================================================================
-# COMPONENT TOGGLES (Enable / Disable each suitable role)
-# ==============================================================================
-enable_prometheus_stack: true    # Metrics (Prometheus, Alertmanager, Grafana, Node Exporter, kube-state-metrics)
-enable_loki_stack: true          # Logs (Loki + Promtail)
-enable_jaeger: true              # Distributed Tracing (Jaeger all-in-one & query UI)
-enable_opentelemetry: true       # OTel Collector (Universal pipeline for OTLP traces & metrics)
-enable_grafana_dashboards: true  # Curated Dashboards (Cluster, Nodes, Pods, Logs, Traces)
+k8s_monitoring_namespace: "monitoring"
+opensearch_namespace: "opensearch"
+kafka_namespace: "kafka"
 
-# ==============================================================================
-# INGRESS & DOMAINS (Uses ingress-nginx + Cert-Manager)
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 2. COMPONENT FEATURE TOGGLES
+# ------------------------------------------------------------------------------
+enable_prometheus_stack: true    # Metrics (Prometheus, Alertmanager, Grafana, Exporters)
+enable_loki_stack: true          # Logs (Loki storage backend)
+enable_jaeger: true              # Traces (Jaeger all-in-one & query UI)
+enable_alloy: true               # Universal Telemetry Shipper (Alloy DaemonSet)
+enable_opentelemetry: false      # Legacy collector (Replaced by Alloy)
+enable_opensearch: true          # Full-Text Search, Audit Logs & SIEM (OpenSearch + Dashboards)
+enable_kafka: false              # Resilience Buffer (Confluent Kafka 7.8.0 3-node KRaft)
+enable_schema_registry: false    # Confluent Schema Registry 7.8.0
+enable_debezium: false           # Debezium Kafka Connect 3.4.0 CDC
+enable_kafka_ui: false           # Provectus Kafka UI Web Dashboard
+enable_grafana_dashboards: true  # Curated Grafana Dashboards
+
+# ------------------------------------------------------------------------------
+# 3. INGRESS & TLS DOMAINS (ingress-nginx + cert-manager)
+# ------------------------------------------------------------------------------
 ingress_class_name: "nginx"
 cert_manager_cluster_issuer: "letsencrypt-prod"
 acme_admin_email: "pengseangsim210@gmail.com"
 
-# Domains
+enable_ingress: false            # Set true when DNS records point to ingress controller VIP
+enable_tls: false                # Set true to generate Let's Encrypt TLS certs
+
 grafana_domain: "grafana.seang.shop"
 jaeger_domain: "jaeger.seang.shop"
 alertmanager_domain: "alertmanager.seang.shop"
 prometheus_domain: "prometheus.seang.shop"
+kafka_ui_domain: "kafka.seang.shop"
 
-# Set true to enable ingress routes for UIs
-enable_ingress: false            # Set true when DNS records point to ingress-nginx controller VIP
-enable_tls: false                # Set true to generate Let's Encrypt TLS certs
-
-# Grafana Admin Credentials
-grafana_admin_user: "admin"
-grafana_admin_password: "PrometheusGrafanaPass2026!"
-
-# ==============================================================================
-# STORAGE CONFIGURATION (Prometheus & Loki)
-# Longhorn is the default distributed block storage on this cluster.
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 4. STORAGE CLASS CONFIGURATION
+# ------------------------------------------------------------------------------
 default_storage_class: "longhorn"
+
+# ------------------------------------------------------------------------------
+# 5. ROLE: PROMETHEUS STACK (`roles/prometheus_stack`)
+# ------------------------------------------------------------------------------
+prometheus_service_port: 9090
+alertmanager_service_port: 9093
+grafana_service_port: 3000
+node_exporter_port: 9100
+kube_state_metrics_port: 8080
 
 prometheus_storage:
   storage_class:
@@ -55,6 +68,30 @@ prometheus_storage:
     enabled: false
   retention: "15d"
 
+prometheus_scrape_interval: "15s"
+prometheus_evaluation_interval: "15s"
+
+alertmanager_retention: "120h"
+
+# Grafana Core UI Credentials & Labels
+grafana_admin_user: "admin"
+grafana_admin_password: "PrometheusGrafanaPass2026!"
+grafana_sidecar_dashboards_label: "grafana_dashboard"
+grafana_sidecar_datasources_label: "grafana_datasource"
+
+# Exporters toggles
+enable_node_exporter: true
+enable_kube_state_metrics: true
+enable_cadvisor: true
+
+# ------------------------------------------------------------------------------
+# 6. ROLE: LOKI STACK (`roles/loki_stack`)
+# ------------------------------------------------------------------------------
+loki_service_name: "loki"
+loki_service_port: 3100
+loki_max_lines: 1000
+loki_retention_deletes_enabled: true
+
 loki_storage:
   storage_class:
     enabled: true
@@ -64,17 +101,218 @@ loki_storage:
     enabled: false
   retention: "168h"              # 7 days of logs
 
-# ==============================================================================
-# PORTS & SERVICE NAMES
-# ==============================================================================
-prometheus_service_port: 9090
-alertmanager_service_port: 9093
-grafana_service_port: 3000
-loki_service_port: 3100
+# ------------------------------------------------------------------------------
+# 7. ROLE: JAEGER TRACING (`roles/jaeger`)
+# ------------------------------------------------------------------------------
+jaeger_service_name: "jaeger"
+jaeger_image: "jaegertracing/all-in-one:1.64.0"
+jaeger_replicas: 1
 jaeger_query_port: 16686
 jaeger_otlp_grpc_port: 4317
 jaeger_otlp_http_port: 4318
-otel_grpc_port: 4317
-otel_http_port: 4318
-node_exporter_port: 9100
-kube_state_metrics_port: 8080
+jaeger_storage_type: "memory"
+jaeger_memory_max_traces: "50000"
+
+jaeger_resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "1Gi"
+
+# ------------------------------------------------------------------------------
+# 8. ROLE: GRAFANA ALLOY UNIVERSAL SHIPPER (`roles/alloy`)
+# ------------------------------------------------------------------------------
+alloy_http_port: 12345
+alloy_otlp_grpc_port: 4317
+alloy_otlp_http_port: 4318
+alloy_clustering_enabled: false
+
+alloy_resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "300m"
+    memory: "256Mi"
+
+# ------------------------------------------------------------------------------
+# 9. ROLE: OPENTELEMETRY COLLECTOR (`roles/opentelemetry` - Optional/Legacy)
+# ------------------------------------------------------------------------------
+otel_collector_image: "otel/opentelemetry-collector-contrib:0.118.0"
+otel_metrics_port: 8889
+
+otel_resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# ------------------------------------------------------------------------------
+# 10. ROLE: OPENSEARCH & DASHBOARDS (`roles/opensearch`)
+# ------------------------------------------------------------------------------
+opensearch_cluster_name: "opensearch-cluster"
+opensearch_service_name: "opensearch"
+opensearch_replicas: 1
+opensearch_heap_size: "512m"     # Keeps JVM memory low to prevent node OOM
+opensearch_port: 9200
+opensearch_dashboards_port: 5601
+enable_opensearch_dashboards: true
+opensearch_dashboards_replicas: 1
+
+opensearch_storage:
+  storage_class:
+    enabled: true
+    name: "{{ default_storage_class }}"
+    size: "15Gi"
+
+opensearch_resources:
+  requests:
+    cpu: "200m"
+    memory: "600Mi"
+  limits:
+    cpu: "1000m"
+    memory: "1024Mi"
+
+opensearch_dashboards_resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# ------------------------------------------------------------------------------
+# 11. ROLE: CONFLUENT KAFKA 3-NODE KRaft CLUSTER (`roles/kafka`)
+# ------------------------------------------------------------------------------
+kafka_image: "confluentinc/cp-kafka:7.8.0"
+kafka_cluster_id: "4L6g3nShT-eMCtK--X86sw"
+kafka_heap_size: "256m"
+kafka_storage_size: "10Gi"
+kafka_plaintext_port: 9090
+kafka_controller_port: 9091
+kafka_external_port: 9092
+
+# 3-Node KRaft Broker Specifications
+kafka_nodes:
+  - id: 1
+    name: "kafka-1-itp"
+  - id: 2
+    name: "kafka-2-itp"
+  - id: 3
+    name: "kafka-3-itp"
+
+# KRaft Quorum & Topic Settings
+kafka_controller_quorum_voters: "1@kafka-1-itp:9091,2@kafka-2-itp:9091,3@kafka-3-itp:9091"
+kafka_offsets_topic_replication_factor: 3
+kafka_transaction_state_log_min_isr: 1
+kafka_transaction_state_log_replication_factor: 1
+
+kafka_resources:
+  requests:
+    cpu: "150m"
+    memory: "384Mi"
+  limits:
+    cpu: "800m"
+    memory: "768Mi"
+
+# ------------------------------------------------------------------------------
+# 12. ROLE: CONFLUENT SCHEMA REGISTRY (`roles/schema_registry`)
+# ------------------------------------------------------------------------------
+schema_registry_service_name: "schema-registry-itp"
+schema_registry_image: "confluentinc/cp-schema-registry:7.8.0"
+schema_registry_port: 8081
+schema_registry_debug: "true"
+schema_registry_topic: "_schemas"
+schema_registry_replication_factor: 3
+schema_registry_storage_size: "2Gi"
+
+schema_registry_resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# ------------------------------------------------------------------------------
+# 13. ROLE: DEBEZIUM KAFKA CONNECT CDC (`roles/debezium`)
+# ------------------------------------------------------------------------------
+debezium_service_name: "debezium-kafka-connect-itp"
+debezium_image: "quay.io/debezium/connect:3.4.0.Final"  # Or custom debezium-kafka-connect-itp
+debezium_port: 8083
+debezium_group_id: "cdc_connect-group"
+
+# Storage Topics & Replication Factors
+debezium_config_storage_topic: "cdc_connect_configs"
+debezium_offset_storage_topic: "cdc_connect_offsets"
+debezium_status_storage_topic: "cdc_connect_status"
+debezium_config_storage_replication_factor: 3
+debezium_offset_storage_replication_factor: 3
+debezium_status_storage_replication_factor: 3
+
+# Key & Value Serializers
+debezium_key_converter: "io.confluent.connect.avro.AvroConverter"
+debezium_value_converter: "io.confluent.connect.avro.AvroConverter"
+
+# Persistence Volumes for Plugins & Data
+debezium_plugins_pvc_name: "debezium-plugins-itp"
+debezium_data_pvc_name: "debezium-data-itp"
+debezium_plugins_storage_size: "5Gi"
+debezium_data_storage_size: "5Gi"
+
+debezium_resources:
+  requests:
+    cpu: "150m"
+    memory: "384Mi"
+  limits:
+    cpu: "800m"
+    memory: "768Mi"
+
+# ------------------------------------------------------------------------------
+# 14. ROLE: PROVECTUS KAFKA UI (`roles/kafka_ui`)
+# ------------------------------------------------------------------------------
+kafka_ui_service_name: "kafka-ui-itp"
+kafka_ui_image: "provectuslabs/kafka-ui:latest"
+kafka_ui_port: 8080
+kafka_ui_auth_type: "LOGIN_FORM"
+kafka_ui_admin_user: "admin"
+kafka_ui_admin_password: "qwer"
+kafka_ui_cluster_name: "local"
+kafka_ui_storage_size: "2Gi"
+
+kafka_ui_resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# ------------------------------------------------------------------------------
+# 15. DYNAMIC CROSS-SERVICE CONNECTION ENDPOINTS & URLS
+# Auto-wired across all templates. If you change a name/port above, these update automatically!
+# ------------------------------------------------------------------------------
+# Loki Log Ingestion Endpoint
+loki_push_url: "http://{{ loki_service_name }}.{{ k8s_monitoring_namespace }}.svc.cluster.local:{{ loki_service_port }}/loki/api/v1/push"
+
+# Jaeger Query Web UI URL
+jaeger_query_url: "http://{{ jaeger_service_name }}.{{ k8s_monitoring_namespace }}.svc.cluster.local:{{ jaeger_query_port }}"
+
+# Jaeger OTLP gRPC Ingestion Endpoint
+jaeger_otlp_grpc_endpoint: "{{ jaeger_service_name }}.{{ k8s_monitoring_namespace }}.svc.cluster.local:{{ jaeger_otlp_grpc_port }}"
+
+# OpenSearch Query & Sink Endpoint
+opensearch_url: "http://{{ opensearch_cluster_name }}.{{ opensearch_namespace }}.svc.cluster.local:{{ opensearch_port }}"
+
+# Kafka Bootstrap Servers String
+kafka_bootstrap_servers: "kafka-1-itp.{{ kafka_namespace }}.svc.cluster.local:{{ kafka_plaintext_port }},kafka-2-itp.{{ kafka_namespace }}.svc.cluster.local:{{ kafka_plaintext_port }},kafka-3-itp.{{ kafka_namespace }}.svc.cluster.local:{{ kafka_plaintext_port }}"
+
+# Schema Registry Access URL
+schema_registry_url: "http://{{ schema_registry_service_name }}.{{ kafka_namespace }}.svc.cluster.local:{{ schema_registry_port }}"
+
+# Debezium Connect REST API URL
+debezium_connect_url: "http://{{ debezium_service_name }}.{{ kafka_namespace }}.svc.cluster.local:{{ debezium_port }}"

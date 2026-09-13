@@ -1,0 +1,27 @@
+---
+# tasks file for kafka (Confluent CP-Kafka 7.8.0 Multi-Node KRaft Cluster)
+
+- name: Ensure Kafka namespace exists
+  kubernetes.core.k8s:
+    name: "{{ kafka_namespace | default('kafka') }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Deploy Confluent Kafka KRaft Cluster Manifests
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'kafka-cluster.yaml.j2') | from_yaml_all | list }}"
+    state: present
+
+- name: Wait for Kafka Broker Pods to be Ready
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ kafka_namespace | default('kafka') }}"
+    name: "{{ item.name }}-0"
+  register: kafka_node_pod
+  until: >
+    kafka_node_pod.resources | length > 0 and
+    (kafka_node_pod.resources[0].status.containerStatuses[0].ready | default(false))
+  retries: 30
+  delay: 10
+  loop: "{{ kafka_nodes }}"

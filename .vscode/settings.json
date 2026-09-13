@@ -1,0 +1,21 @@
+{
+  "yaml.schemaStore.enable": false,
+  "yaml.schemas": {
+    "kubernetes": [
+      "*.k8s.yaml",
+      "*.k8s.yml",
+      "*.yaml.j2",
+      "*.yml.j2",
+      "*deployment*.yaml",
+      "*statefulset*.yaml"
+    ]
+  },
+  "yaml.customTags": [
+    "!reference sequence"
+  ],
+  "yaml.validate": true,
+  "files.associations": {
+    "*.yaml.j2": "ansible-jinja",
+    "*.yml.j2": "ansible-jinja"
+  }
+}

@@ -4,7 +4,7 @@ metadata:
   name: loki-logs-dashboard
   namespace: {{ k8s_monitoring_namespace }}
   labels:
-    grafana_dashboard: "1"
+    {{ grafana_sidecar_dashboards_label | default('grafana_dashboard') }}: "1"
 data:
   loki-metrics.json: |
     {

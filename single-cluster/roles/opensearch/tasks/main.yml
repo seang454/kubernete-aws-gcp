@@ -1,0 +1,68 @@
+---
+# tasks file for opensearch (Full-Text Search, Audit Logs & SIEM)
+
+- name: Add OpenSearch Helm Repository
+  kubernetes.core.helm_repository:
+    name: opensearch
+    repo_url: https://opensearch-project.github.io/helm-charts/
+
+- name: Ensure OpenSearch namespace exists
+  kubernetes.core.k8s:
+    name: "{{ opensearch_namespace | default('opensearch') }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Render OpenSearch Values File
+  ansible.builtin.template:
+    src: opensearch-values.yaml.j2
+    dest: /tmp/opensearch-values.yaml
+    mode: "0644"
+
+- name: Deploy OpenSearch via Helm
+  kubernetes.core.helm:
+    name: "{{ opensearch_cluster_name | default('opensearch-cluster') }}"
+    chart_ref: opensearch/opensearch
+    release_namespace: "{{ opensearch_namespace | default('opensearch') }}"
+    values_files:
+      - /tmp/opensearch-values.yaml
+    state: present
+    wait: true
+    timeout: "600s"
+
+- name: Render OpenSearch Dashboards Values File
+  ansible.builtin.template:
+    src: dashboards-values.yaml.j2
+    dest: /tmp/dashboards-values.yaml
+    mode: "0644"
+  when: enable_opensearch_dashboards | default(true)
+
+- name: Deploy OpenSearch Dashboards via Helm
+  kubernetes.core.helm:
+    name: opensearch-dashboards
+    chart_ref: opensearch/opensearch-dashboards
+    release_namespace: "{{ opensearch_namespace | default('opensearch') }}"
+    values_files:
+      - /tmp/dashboards-values.yaml
+    state: present
+    wait: true
+    timeout: "600s"
+  when: enable_opensearch_dashboards | default(true)
+
+- name: Register OpenSearch as a Grafana Datasource
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'opensearch-datasource.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Wait for OpenSearch Pod to be Ready
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ opensearch_namespace | default('opensearch') }}"
+    label_selectors:
+      - "app.kubernetes.io/name=opensearch"
+  register: os_pod
+  until: >
+    os_pod.resources | length > 0 and
+    (os_pod.resources[0].status.containerStatuses[0].ready | default(false))
+  retries: 30
+  delay: 10

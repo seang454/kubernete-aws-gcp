@@ -1,9 +1,10 @@
+# yaml-language-server: $schema=none
 ---
 # tasks file for opentelemetry
 
 - name: Deploy OpenTelemetry Collector Manifests
   kubernetes.core.k8s:
-    definition: "{{ lookup('template', 'otel-collector.yaml.j2') | from_yaml_all | list }}"
+    definition: "{{ lookup('template', 'collector.yaml.j2') | from_yaml_all | list }}"
     state: present
 
 - name: Wait for OpenTelemetry Collector Pod to be Ready

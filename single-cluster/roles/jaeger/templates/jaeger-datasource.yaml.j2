@@ -4,7 +4,7 @@ metadata:
   name: grafana-datasource-jaeger
   namespace: "{{ k8s_monitoring_namespace }}"
   labels:
-    grafana_datasource: "1"
+    {{ grafana_sidecar_datasources_label | default('grafana_datasource') }}: "1"
 data:
   jaeger-datasource.yaml: |-
     apiVersion: 1
@@ -12,5 +12,5 @@ data:
       - name: Jaeger
         type: jaeger
         access: proxy
-        url: http://jaeger.{{ k8s_monitoring_namespace }}.svc.cluster.local:16686
+        url: {{ jaeger_query_url }}
         isDefault: false

@@ -15,13 +15,13 @@ loki:
 {% endif %}
   config:
     table_manager:
-      retention_deletes_enabled: true
+      retention_deletes_enabled: {{ loki_retention_deletes_enabled | default(true) }}
       retention_period: "{{ loki_storage.retention | default('168h') }}"
 
 promtail:
-  enabled: true
+  enabled: {% if enable_alloy | default(false) %}false{% else %}true{% endif %}
   config:
-    lokiAddress: http://loki:3100/loki/api/v1/push
+    lokiAddress: "{{ loki_push_url }}"
 
 fluent-bit:
   enabled: false

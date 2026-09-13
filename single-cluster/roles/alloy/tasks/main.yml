@@ -1,0 +1,44 @@
+---
+# tasks file for alloy (Universal Telemetry Shipper DaemonSet)
+
+- name: Add grafana Helm Repository
+  kubernetes.core.helm_repository:
+    name: grafana
+    repo_url: https://grafana.github.io/helm-charts
+
+- name: Ensure monitoring namespace exists
+  kubernetes.core.k8s:
+    name: "{{ k8s_monitoring_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Render Grafana Alloy Values File
+  ansible.builtin.template:
+    src: alloy-values.yaml.j2
+    dest: /tmp/alloy-values.yaml
+    mode: "0644"
+
+- name: Deploy Grafana Alloy via Helm
+  kubernetes.core.helm:
+    name: alloy
+    chart_ref: grafana/alloy
+    release_namespace: "{{ k8s_monitoring_namespace }}"
+    values_files:
+      - /tmp/alloy-values.yaml
+    state: present
+    wait: true
+    timeout: "600s"
+
+- name: Wait for Grafana Alloy DaemonSet Pods to be Ready
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ k8s_monitoring_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/name=alloy"
+  register: alloy_pods
+  until: >
+    alloy_pods.resources | length > 0 and
+    (alloy_pods.resources[0].status.containerStatuses[0].ready | default(false))
+  retries: 30
+  delay: 10

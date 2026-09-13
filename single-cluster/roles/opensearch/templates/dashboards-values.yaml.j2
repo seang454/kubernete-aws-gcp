@@ -1,0 +1,22 @@
+# ==============================================================================
+# OpenSearch Dashboards Helm Values Template
+# ==============================================================================
+
+opensearchHosts: "{{ opensearch_url }}"
+replicas: {{ opensearch_dashboards_replicas | default(1) }}
+
+resources:
+  requests:
+    cpu: {{ (opensearch_dashboards_resources.requests.cpu if (opensearch_dashboards_resources is defined and opensearch_dashboards_resources.requests is defined) else '100m') }}
+    memory: {{ (opensearch_dashboards_resources.requests.memory if (opensearch_dashboards_resources is defined and opensearch_dashboards_resources.requests is defined) else '256Mi') }}
+  limits:
+    cpu: {{ (opensearch_dashboards_resources.limits.cpu if (opensearch_dashboards_resources is defined and opensearch_dashboards_resources.limits is defined) else '500m') }}
+    memory: {{ (opensearch_dashboards_resources.limits.memory if (opensearch_dashboards_resources is defined and opensearch_dashboards_resources.limits is defined) else '512Mi') }}
+
+service:
+  type: ClusterIP
+  port: {{ opensearch_dashboards_port | default(5601) }}
+
+config:
+  opensearch_dashboards.yml:
+    opensearch_security.enabled: false

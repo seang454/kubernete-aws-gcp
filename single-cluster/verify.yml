@@ -61,7 +61,7 @@
     - name: Verify Loki StatefulSet Pod
       ansible.builtin.assert:
         that:
-          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'loki') | list | length) > 0
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', loki_service_name | default('loki')) | list | length) > 0
         fail_msg: "Loki pod is not running in {{ k8s_monitoring_namespace }}"
       when: enable_loki_stack | default(true)
 
@@ -70,12 +70,21 @@
         that:
           - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'promtail') | list | length) >= 7
         fail_msg: "Promtail is not running on all nodes in {{ k8s_monitoring_namespace }}"
-      when: enable_loki_stack | default(true)
+      when:
+        - enable_loki_stack | default(true)
+        - not (enable_alloy | default(true))
+
+    - name: Verify Grafana Alloy DaemonSet Pods
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'alloy') | list | length) > 0
+        fail_msg: "Grafana Alloy is not running in {{ k8s_monitoring_namespace }}"
+      when: enable_alloy | default(true)
 
     - name: Verify Jaeger Deployment Pod
       ansible.builtin.assert:
         that:
-          - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'jaeger') | list | length) > 0
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', jaeger_service_name | default('jaeger')) | list | length) > 0
         fail_msg: "Jaeger pod is not running in {{ k8s_monitoring_namespace }}"
       when: enable_jaeger | default(true)
 
@@ -84,15 +93,79 @@
         that:
           - (monitoring_pods.resources | selectattr('metadata.name', 'search', 'otel-collector') | list | length) > 0
         fail_msg: "OpenTelemetry Collector pod is not running in {{ k8s_monitoring_namespace }}"
-      when: enable_opentelemetry | default(true)
+      when: enable_opentelemetry | default(false)
+
+    - name: Fetch Pods in OpenSearch namespace
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ opensearch_namespace | default('opensearch') }}"
+      register: opensearch_pods
+      when: enable_opensearch | default(true)
+
+    - name: Verify OpenSearch Pod
+      ansible.builtin.assert:
+        that:
+          - (opensearch_pods.resources | selectattr('metadata.name', 'search', opensearch_service_name | default('opensearch')) | list | length) > 0
+        fail_msg: "OpenSearch pod is not running in {{ opensearch_namespace | default('opensearch') }}"
+      when: enable_opensearch | default(true)
+
+    - name: Verify OpenSearch Dashboards Pod
+      ansible.builtin.assert:
+        that:
+          - (opensearch_pods.resources | selectattr('metadata.name', 'search', 'dashboards') | list | length) > 0
+        fail_msg: "OpenSearch Dashboards pod is not running in {{ opensearch_namespace | default('opensearch') }}"
+      when:
+        - enable_opensearch | default(true)
+        - enable_opensearch_dashboards | default(true)
+
+    - name: Fetch Pods in Kafka namespace
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ kafka_namespace | default('kafka') }}"
+      register: kafka_pods
+      when: (enable_kafka | default(false)) or (enable_schema_registry | default(false)) or (enable_debezium | default(false)) or (enable_kafka_ui | default(false))
+
+    - name: Verify Confluent Kafka Cluster Pods
+      ansible.builtin.assert:
+        that:
+          - (kafka_pods.resources | selectattr('metadata.name', 'search', item.name) | list | length) > 0
+        fail_msg: "Kafka broker pod {{ item.name }} must be running in {{ kafka_namespace | default('kafka') }}"
+      loop: "{{ kafka_nodes }}"
+      when: enable_kafka | default(false)
+
+    - name: Verify Schema Registry Pod
+      ansible.builtin.assert:
+        that:
+          - (kafka_pods.resources | selectattr('metadata.name', 'search', schema_registry_service_name | default('schema-registry-itp')) | list | length) > 0
+        fail_msg: "Schema Registry pod is not running in {{ kafka_namespace | default('kafka') }}"
+      when: enable_schema_registry | default(false)
+
+    - name: Verify Debezium Kafka Connect Pod
+      ansible.builtin.assert:
+        that:
+          - (kafka_pods.resources | selectattr('metadata.name', 'search', debezium_service_name | default('debezium-kafka-connect-itp')) | list | length) > 0
+        fail_msg: "Debezium Kafka Connect pod is not running in {{ kafka_namespace | default('kafka') }}"
+      when: enable_debezium | default(false)
+
+    - name: Verify Kafka UI Pod
+      ansible.builtin.assert:
+        that:
+          - (kafka_pods.resources | selectattr('metadata.name', 'search', kafka_ui_service_name | default('kafka-ui-itp')) | list | length) > 0
+        fail_msg: "Kafka UI pod is not running in {{ kafka_namespace | default('kafka') }}"
+      when: enable_kafka_ui | default(false)
 
     - name: Display Final Verification Summary
       ansible.builtin.debug:
         msg:
           - "======================================================================="
-          - "🎉 VERIFICATION COMPLETE: ALL OBSERVABILITY COMPONENTS ARE READY!"
+          - "🎉 VERIFICATION COMPLETE: ALL OBSERVABILITY & STREAMING COMPONENTS ARE READY!"
           - "• Metrics Pipeline: Prometheus, Alertmanager, Node Exporter, kube-state-metrics, cAdvisor"
-          - "• Logs Pipeline: Loki, Promtail"
-          - "• Traces Pipeline: OpenTelemetry Collector, Jaeger"
-          - "• Visualization UI: Grafana"
+          - "• Logs Pipeline: Loki, OpenSearch"
+          - "• Universal Shipper: Grafana Alloy"
+          - "• Traces Pipeline: Jaeger (OTLP via Alloy)"
+          - "• Streaming Buffer: Confluent Kafka 3-Node KRaft ({{ 'Enabled' if (enable_kafka | default(false)) else 'Disabled' }})"
+          - "• Schema Registry: Confluent Schema Registry ({{ 'Enabled' if (enable_schema_registry | default(false)) else 'Disabled' }})"
+          - "• Database CDC: Debezium Kafka Connect ({{ 'Enabled' if (enable_debezium | default(false)) else 'Disabled' }})"
+          - "• Kafka UI: Provectus Kafka UI Dashboard ({{ 'Enabled' if (enable_kafka_ui | default(false)) else 'Disabled' }})"
+          - "• Visualization UIs: Grafana & OpenSearch Dashboards"
           - "======================================================================="

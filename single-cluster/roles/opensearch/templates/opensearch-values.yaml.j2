@@ -1,0 +1,33 @@
+# ==============================================================================
+# OpenSearch Helm Values Template (Tuned for t3.small 2GB RAM Nodes)
+# ==============================================================================
+
+clusterName: "{{ opensearch_cluster_name | default('opensearch-cluster') }}"
+nodeGroup: "all-in-one"
+singleNode: true
+replicas: {{ opensearch_replicas | default(1) }}
+
+opensearchJavaOpts: "-Xms{{ opensearch_heap_size | default('512m') }} -Xmx{{ opensearch_heap_size | default('512m') }}"
+
+resources:
+  requests:
+    cpu: {{ (opensearch_resources.requests.cpu if (opensearch_resources is defined and opensearch_resources.requests is defined) else '200m') }}
+    memory: {{ (opensearch_resources.requests.memory if (opensearch_resources is defined and opensearch_resources.requests is defined) else '600Mi') }}
+  limits:
+    cpu: {{ (opensearch_resources.limits.cpu if (opensearch_resources is defined and opensearch_resources.limits is defined) else '1000m') }}
+    memory: {{ (opensearch_resources.limits.memory if (opensearch_resources is defined and opensearch_resources.limits is defined) else '1024Mi') }}
+
+persistence:
+{% if opensearch_storage.storage_class.enabled | default(true) %}
+  enabled: true
+  storageClass: "{{ opensearch_storage.storage_class.name | default(default_storage_class) }}"
+  size: "{{ opensearch_storage.storage_class.size | default('15Gi') }}"
+{% else %}
+  enabled: false
+{% endif %}
+
+config:
+  opensearch.yml:
+    # Disable security plugin for internal cluster dev/lab simplicity
+    plugins.security.disabled: true
+    discovery.type: single-node

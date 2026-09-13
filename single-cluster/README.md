@@ -165,13 +165,17 @@ observ-monitory/
 ├── group_vars/
 │   └── all.yml                          # Global toggles, storage classes, credentials, domains
 ├── roles/
-│   ├── prometheus_stack/                # Role 1: Metrics & Alerting Engine
-│   ├── loki_stack/                      # Role 2: Log Aggregation Engine
-│   ├── jaeger/                          # Role 3: Distributed Tracing Backend
-│   ├── opentelemetry/                   # Role 4: Telemetry Pipeline Router
-│   ├── grafana_dashboards/              # Role 5: Curated Visual Dashboards
-│   ├── host_observability/              # Role 6: Non-K8s External Host Exporters (Alloy + Node Exporter)
-│   └── ceph_observability/              # Role 7: External Ceph Cluster Exporter
+│   ├── prometheus_stack/                # Role 1: Metrics & Alerting Engine (Prometheus, Alertmanager, Grafana)
+│   ├── loki_stack/                      # Role 2: Log Aggregation Engine (Loki)
+│   ├── jaeger/                          # Role 3: Distributed Tracing Backend (Jaeger OTLP)
+│   ├── opensearch/                      # Role 4: Full-Text Search, Audit & SIEM (OpenSearch + Dashboards)
+│   ├── kafka/                           # Role 5: Resilience Buffer & Streaming Queue (Bitnami Kafka + Kafka UI)
+│   ├── debezium/                        # Role 6: CDC & Schema Registry (Debezium Connect + Schema Registry)
+│   ├── alloy/                           # Role 7: Universal Telemetry Shipper (Grafana Alloy DaemonSet)
+│   ├── opentelemetry/                   # Role 8: Telemetry Pipeline Router (Standalone OTel Collector)
+│   ├── grafana_dashboards/              # Role 9: Curated Visual Dashboards
+│   ├── host_observability/              # Role 10: Non-K8s External Host Exporters (Alloy + Node Exporter)
+│   └── ceph_observability/              # Role 11: External Ceph Cluster Exporter
 └── observability-architecture-guide.md
 ```
 
@@ -219,11 +223,69 @@ observ-monitory/
   * **Pipeline Configuration**: Receives application traces and metrics over OTLP (`4317` gRPC / `4318` HTTP). Batches and routes traces to Jaeger and exposes metrics on port `8889` for Prometheus.
   * **OTel Service**: Exposes `otel-collector` inside the cluster so applications can send telemetry to `http://otel-collector.monitoring.svc:4317`.
 * **Deployment Method:** Kubernetes native `Deployment`, `ConfigMap`, and `Service` manifests.
-* **When to use:** Required when microservices instrumented with OpenTelemetry SDK need a central collector to receive and route telemetry.
+* **When to use:** Legacy/alternative collector. In Architecture 1.1, `roles/alloy` is preferred as the universal unified shipper.
 
 ---
 
-### 5. `roles/grafana_dashboards` (Inside Kubernetes)
+### 5. `roles/opensearch` (Inside Kubernetes)
+* **What it installs:**
+  * **OpenSearch**: Distributed full-text search, audit logging, and SIEM engine (`StatefulSet` on Longhorn PVC, port `9200`). Tuned for small nodes (`-Xms512m -Xmx512m`).
+  * **OpenSearch Dashboards**: Specialized web console for log discovery, search aggregations, and security analytics (port `5601`).
+  * **Grafana Datasource ConfigMap**: Automatically registers OpenSearch into Grafana via sidecar discovery.
+* **Deployment Method:** Helm chart `opensearch/opensearch` and `opensearch/opensearch-dashboards`.
+* **When to use:** Required for full-text search, regulatory audit logging, SIEM security analysis, and deep log analytics.
+
+---
+
+### 6. `roles/kafka` (Inside Kubernetes - Confluent 3-Node KRaft Cluster)
+* **What it installs:**
+  * **Confluent CP-Kafka 7.8.0 (3-Node KRaft Cluster)**: 3-broker / 3-controller cluster (`kafka-1-itp`, `kafka-2-itp`, `kafka-3-itp`) running in KRaft mode (no ZooKeeper required).
+  * **Network & Storage**: Dedicated Services for each node (`:9090` plaintext, `:9091` controller, `:9092` external) + cluster-wide `kafka` service, with dedicated Longhorn PVC storage for each broker.
+* **Deployment Method:** Kubernetes native `StatefulSet`, `Service`, and `PersistentVolumeClaim` manifests.
+* **Controlled By:** Toggle `enable_kafka: false` (defaulted to `false` until you want to spin it up).
+
+---
+
+### 7. `roles/schema_registry` (Inside Kubernetes - Confluent Schema Registry)
+* **What it installs:**
+  * **Confluent CP-Schema-Registry 7.8.0 (`schema-registry-itp`)**: Schema management service (port `8081`) for managing and enforcing Apache Avro schemas across Kafka topics.
+  * **Storage & Persistence**: PVC `schema-registry-itp-data` mounted at `/etc/schema-registry/data`.
+* **Deployment Method:** Kubernetes native `Deployment`, `Service`, and `PersistentVolumeClaim` manifests.
+* **Controlled By:** Toggle `enable_schema_registry: false`.
+
+---
+
+### 8. `roles/debezium` (Inside Kubernetes - Debezium Kafka Connect CDC)
+* **What it installs:**
+  * **Debezium Kafka Connect (`debezium-kafka-connect-itp`)**: Distributed CDC engine (port `8083`) with Avro converters configured for real-time Database Change Data Capture (PostgreSQL WAL, MySQL binlog, Oracle).
+  * **Storage & Plugins**: PVCs for `/kafka/connect/plugins` and `/kafka/data`.
+  * **Custom Dockerfile**: Stored in `roles/debezium/files/Dockerfile` with Confluent Avro converters, Confluent JDBC, and Oracle Instant Client 19c.
+* **Deployment Method:** Kubernetes native `Deployment`, `Service`, and `PersistentVolumeClaim` manifests.
+* **Controlled By:** Toggle `enable_debezium: false`.
+
+---
+
+### 9. `roles/kafka_ui` (Inside Kubernetes - Provectus Kafka UI)
+* **What it installs:**
+  * **Provectus Kafka UI (`kafka-ui-itp`)**: Visual web management console (port `8080`) with built-in login form authentication (`admin` / `qwer`).
+  * **Full Integration**: Pre-wired to inspect all 3 Kafka brokers, the Schema Registry (`http://schema-registry-itp:8081`), and Debezium Connect (`http://debezium-kafka-connect-itp:8083`).
+  * **Storage**: PVC `kafka-ui-itp-data` mounted at `/data`.
+* **Deployment Method:** Kubernetes native `Deployment`, `Service`, and `PersistentVolumeClaim` manifests.
+* **Controlled By:** Toggle `enable_kafka_ui: false`.
+
+---
+
+### 8. `roles/alloy` (Inside Kubernetes)
+* **What it installs:**
+  * **Grafana Alloy**: Universal telemetry shipper running as a `DaemonSet` on **every Kubernetes node**.
+  * **Log Tailing**: Directly mounts `/var/log/pods/` to ship container stdout/stderr to Loki.
+  * **Trace Receiver**: Listens on ports `4317` (gRPC) and `4318` (HTTP) for in-cluster OTLP traces from microservices and forwards them to Jaeger.
+* **Deployment Method:** Helm chart `grafana/alloy`.
+* **When to use:** The central unified collector for Architecture 1.1 (replaces standalone Promtail).
+
+---
+
+### 8. `roles/grafana_dashboards` (Inside Kubernetes)
 * **What it installs:**
   * Curated, pre-built visual dashboards deployed as Kubernetes `ConfigMaps` with the label `grafana_dashboard: "1"`.
   * Grafana's dashboard sidecar automatically detects these ConfigMaps and imports them into Grafana:

@@ -4,7 +4,7 @@ metadata:
   name: grafana-datasource-loki
   namespace: "{{ k8s_monitoring_namespace }}"
   labels:
-    grafana_datasource: "1"
+    {{ grafana_sidecar_datasources_label | default('grafana_datasource') }}: "1"
 data:
   loki-datasource.yaml: |-
     apiVersion: 1
@@ -12,7 +12,7 @@ data:
       - name: Loki
         type: loki
         access: proxy
-        url: http://loki.{{ k8s_monitoring_namespace }}.svc.cluster.local:3100
+        url: "http://{{ loki_service_name | default('loki') }}.{{ k8s_monitoring_namespace }}.svc.cluster.local:{{ loki_service_port | default(3100) }}"
         isDefault: false
         jsonData:
-          maxLines: 1000
+          maxLines: {{ loki_max_lines | default(1000) }}

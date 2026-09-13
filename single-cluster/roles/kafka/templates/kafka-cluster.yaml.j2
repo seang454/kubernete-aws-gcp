@@ -1,0 +1,147 @@
+---
+# ==============================================================================
+# Confluent CP-Kafka 7.8.0 - Multi-Node KRaft Cluster
+# ==============================================================================
+
+# Shared cluster Service for round-robin discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: {{ kafka_namespace | default('kafka') }}
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/part-of: kafka-cluster
+spec:
+  type: ClusterIP
+  ports:
+    - name: plaintext
+      port: {{ kafka_plaintext_port | default(9090) }}
+      targetPort: {{ kafka_plaintext_port | default(9090) }}
+    - name: external
+      port: {{ kafka_external_port | default(9092) }}
+      targetPort: {{ kafka_external_port | default(9092) }}
+  selector:
+    app.kubernetes.io/part-of: kafka-cluster
+
+{% for node in kafka_nodes %}
+---
+# Persistent Volume Claim for Broker/Controller {{ node.name }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ node.name }}-vol
+  namespace: {{ kafka_namespace | default('kafka') }}
+  labels:
+    app.kubernetes.io/name: {{ node.name }}
+    app.kubernetes.io/part-of: kafka-cluster
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ default_storage_class | default('longhorn') }}
+  resources:
+    requests:
+      storage: {{ kafka_storage_size | default('10Gi') }}
+
+---
+# Dedicated Service for Broker/Controller {{ node.name }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ node.name }}
+  namespace: {{ kafka_namespace | default('kafka') }}
+  labels:
+    app.kubernetes.io/name: {{ node.name }}
+    app.kubernetes.io/part-of: kafka-cluster
+spec:
+  type: ClusterIP
+  ports:
+    - name: plaintext
+      port: {{ kafka_plaintext_port | default(9090) }}
+      targetPort: {{ kafka_plaintext_port | default(9090) }}
+    - name: controller
+      port: {{ kafka_controller_port | default(9091) }}
+      targetPort: {{ kafka_controller_port | default(9091) }}
+    - name: external
+      port: {{ kafka_external_port | default(9092) }}
+      targetPort: {{ kafka_external_port | default(9092) }}
+  selector:
+    app.kubernetes.io/name: {{ node.name }}
+
+---
+# StatefulSet for Broker/Controller {{ node.name }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ node.name }}
+  namespace: {{ kafka_namespace | default('kafka') }}
+  labels:
+    app.kubernetes.io/name: {{ node.name }}
+    app.kubernetes.io/part-of: kafka-cluster
+spec:
+  serviceName: {{ node.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ node.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ node.name }}
+        app.kubernetes.io/part-of: kafka-cluster
+    spec:
+      containers:
+        - name: kafka
+          image: {{ kafka_image | default('confluentinc/cp-kafka:7.8.0') }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ kafka_plaintext_port | default(9090) }}
+              name: plaintext
+            - containerPort: {{ kafka_controller_port | default(9091) }}
+              name: controller
+            - containerPort: {{ kafka_external_port | default(9092) }}
+              name: external
+          env:
+            - name: KAFKA_NODE_ID
+              value: "{{ node.id }}"
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "{{ kafka_controller_quorum_voters }}"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://:{{ kafka_plaintext_port | default(9090) }},CONTROLLER://:{{ kafka_controller_port | default(9091) }},EXTERNAL://:{{ kafka_external_port | default(9092) }}"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://{{ node.name }}.{{ kafka_namespace | default('kafka') }}.svc.cluster.local:{{ kafka_plaintext_port | default(9090) }},EXTERNAL://{{ node.name }}:{{ kafka_external_port | default(9092) }}"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: CLUSTER_ID
+              value: "{{ kafka_cluster_id | default('4L6g3nShT-eMCtK--X86sw') }}"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "{{ kafka_offsets_topic_replication_factor | default('3') }}"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "{{ kafka_transaction_state_log_min_isr | default('1') }}"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "{{ kafka_transaction_state_log_replication_factor | default('1') }}"
+            - name: KAFKA_LOG_DIRS
+              value: "/var/lib/kafka/data"
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xms{{ kafka_heap_size | default('256m') }} -Xmx{{ kafka_heap_size | default('256m') }}"
+          resources:
+            requests:
+              cpu: {{ (kafka_resources.requests.cpu if (kafka_resources is defined and kafka_resources.requests is defined) else '150m') }}
+              memory: {{ (kafka_resources.requests.memory if (kafka_resources is defined and kafka_resources.requests is defined) else '384Mi') }}
+            limits:
+              cpu: {{ (kafka_resources.limits.cpu if (kafka_resources is defined and kafka_resources.limits is defined) else '800m') }}
+              memory: {{ (kafka_resources.limits.memory if (kafka_resources is defined and kafka_resources.limits is defined) else '768Mi') }}
+          volumeMounts:
+            - name: kafka-data
+              mountPath: /var/lib/kafka/data
+      volumes:
+        - name: kafka-data
+          persistentVolumeClaim:
+            claimName: {{ node.name }}-vol
+{% endfor %}

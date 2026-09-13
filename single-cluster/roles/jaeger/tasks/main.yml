@@ -16,7 +16,7 @@
     kind: Pod
     namespace: "{{ k8s_monitoring_namespace }}"
     label_selectors:
-      - "app.kubernetes.io/name=jaeger"
+      - "app.kubernetes.io/name={{ jaeger_service_name | default('jaeger') }}"
   register: jaeger_pod
   until: >
     jaeger_pod.resources | length > 0 and

@@ -1,0 +1,27 @@
+---
+# tasks file for kafka_ui (Provectus Kafka UI Web Dashboard)
+
+- name: Ensure Kafka namespace exists
+  kubernetes.core.k8s:
+    name: "{{ kafka_namespace | default('kafka') }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Deploy Kafka UI Manifests
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'kafka-ui.yaml.j2') | from_yaml_all | list }}"
+    state: present
+
+- name: Wait for Kafka UI Pod to be Ready
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ kafka_namespace | default('kafka') }}"
+    label_selectors:
+      - "app.kubernetes.io/name={{ kafka_ui_service_name | default('kafka-ui-itp') }}"
+  register: kui_pod
+  until: >
+    kui_pod.resources | length > 0 and
+    (kui_pod.resources[0].status.containerStatuses[0].ready | default(false))
+  retries: 30
+  delay: 10

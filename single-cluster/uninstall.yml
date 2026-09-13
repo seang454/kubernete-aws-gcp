@@ -22,9 +22,103 @@
         state: absent
       failed_when: false
 
+    - name: Remove Grafana Alloy Helm Release
+      kubernetes.core.helm:
+        name: alloy
+        release_namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+        state: absent
+      failed_when: false
+
+    - name: Remove OpenSearch Dashboards Helm Release
+      kubernetes.core.helm:
+        name: opensearch-dashboards
+        release_namespace: "{{ opensearch_namespace | default('opensearch') }}"
+        state: absent
+      failed_when: false
+
+    - name: Remove OpenSearch Helm Release
+      kubernetes.core.helm:
+        name: "{{ opensearch_cluster_name | default('opensearch-cluster') }}"
+        release_namespace: "{{ opensearch_namespace | default('opensearch') }}"
+        state: absent
+      failed_when: false
+
+    - name: Delete opensearch Namespace
+      kubernetes.core.k8s:
+        name: "{{ opensearch_namespace | default('opensearch') }}"
+        api_version: v1
+        kind: Namespace
+        state: absent
+    - name: Delete Kafka UI Resources
+      kubernetes.core.k8s:
+        name: "{{ kafka_ui_service_name | default('kafka-ui-itp') }}"
+        namespace: "{{ kafka_namespace | default('kafka') }}"
+        kind: "{{ item }}"
+        state: absent
+      loop:
+        - Deployment
+        - Service
+      failed_when: false
+
+    - name: Delete Debezium Connect Resources
+      kubernetes.core.k8s:
+        name: "{{ debezium_service_name | default('debezium-kafka-connect-itp') }}"
+        namespace: "{{ kafka_namespace | default('kafka') }}"
+        kind: "{{ item }}"
+        state: absent
+      loop:
+        - Deployment
+        - Service
+      failed_when: false
+
+    - name: Delete Schema Registry Resources
+      kubernetes.core.k8s:
+        name: "{{ schema_registry_service_name | default('schema-registry-itp') }}"
+        namespace: "{{ kafka_namespace | default('kafka') }}"
+        kind: "{{ item }}"
+        state: absent
+      loop:
+        - Deployment
+        - Service
+      failed_when: false
+
+    - name: Delete Confluent Kafka Broker StatefulSets
+      kubernetes.core.k8s:
+        name: "{{ item.name }}"
+        namespace: "{{ kafka_namespace | default('kafka') }}"
+        kind: StatefulSet
+        state: absent
+      loop: "{{ kafka_nodes }}"
+      failed_when: false
+
+    - name: Delete Confluent Kafka Broker Services
+      kubernetes.core.k8s:
+        name: "{{ item.name }}"
+        namespace: "{{ kafka_namespace | default('kafka') }}"
+        kind: Service
+        state: absent
+      loop: "{{ kafka_nodes }}"
+      failed_when: false
+
+    - name: Delete Shared Kafka Cluster Service
+      kubernetes.core.k8s:
+        name: kafka
+        namespace: "{{ kafka_namespace | default('kafka') }}"
+        kind: Service
+        state: absent
+      failed_when: false
+
+    - name: Delete kafka Namespace
+      kubernetes.core.k8s:
+        name: "{{ kafka_namespace | default('kafka') }}"
+        api_version: v1
+        kind: Namespace
+        state: absent
+      failed_when: false
+
     - name: Delete Jaeger Deployment & Service
       kubernetes.core.k8s:
-        name: jaeger
+        name: "{{ jaeger_service_name | default('jaeger') }}"
         namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
         kind: "{{ item }}"
         state: absent

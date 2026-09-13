@@ -1,0 +1,87 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ kafka_ui_service_name | default('kafka-ui-itp') }}-data
+  namespace: {{ kafka_namespace | default('kafka') }}
+  labels:
+    app.kubernetes.io/name: {{ kafka_ui_service_name | default('kafka-ui-itp') }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ default_storage_class | default('longhorn') }}
+  resources:
+    requests:
+      storage: {{ kafka_ui_storage_size | default('2Gi') }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ kafka_ui_service_name | default('kafka-ui-itp') }}
+  namespace: {{ kafka_namespace | default('kafka') }}
+  labels:
+    app.kubernetes.io/name: {{ kafka_ui_service_name | default('kafka-ui-itp') }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ kafka_ui_port | default(8080) }}
+      targetPort: 8080
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ kafka_ui_service_name | default('kafka-ui-itp') }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ kafka_ui_service_name | default('kafka-ui-itp') }}
+  namespace: {{ kafka_namespace | default('kafka') }}
+  labels:
+    app.kubernetes.io/name: {{ kafka_ui_service_name | default('kafka-ui-itp') }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ kafka_ui_service_name | default('kafka-ui-itp') }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ kafka_ui_service_name | default('kafka-ui-itp') }}
+    spec:
+      containers:
+        - name: kafka-ui
+          image: {{ kafka_ui_image | default('provectuslabs/kafka-ui:latest') }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: AUTH_TYPE
+              value: "{{ kafka_ui_auth_type | default('LOGIN_FORM') }}"
+            - name: SPRING_SECURITY_USER_NAME
+              value: "{{ kafka_ui_admin_user | default('admin') }}"
+            - name: SPRING_SECURITY_USER_PASSWORD
+              value: "{{ kafka_ui_admin_password | default('qwer') }}"
+            - name: KAFKA_CLUSTERS_0_NAME
+              value: "{{ kafka_ui_cluster_name | default('local') }}"
+            - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+              value: "{{ kafka_ui_bootstrap_servers | default(kafka_bootstrap_servers) }}"
+            - name: KAFKA_CLUSTERS_0_SCHEMAREGISTRY
+              value: "{{ schema_registry_url }}"
+            - name: KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME
+              value: "{{ debezium_service_name | default('debezium-kafka-connect-itp') }}"
+            - name: KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS
+              value: "{{ debezium_connect_url }}"
+          resources:
+            requests:
+              cpu: {{ (kafka_ui_resources.requests.cpu if (kafka_ui_resources is defined and kafka_ui_resources.requests is defined) else '100m') }}
+              memory: {{ (kafka_ui_resources.requests.memory if (kafka_ui_resources is defined and kafka_ui_resources.requests is defined) else '256Mi') }}
+            limits:
+              cpu: {{ (kafka_ui_resources.limits.cpu if (kafka_ui_resources is defined and kafka_ui_resources.limits is defined) else '500m') }}
+              memory: {{ (kafka_ui_resources.limits.memory if (kafka_ui_resources is defined and kafka_ui_resources.limits is defined) else '512Mi') }}
+          volumeMounts:
+            - name: kafka-ui-data
+              mountPath: /data
+      volumes:
+        - name: kafka-ui-data
+          persistentVolumeClaim:
+            claimName: {{ kafka_ui_service_name | default('kafka-ui-itp') }}-data

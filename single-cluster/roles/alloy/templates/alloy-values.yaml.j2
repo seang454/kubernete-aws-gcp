@@ -1,0 +1,105 @@
+# ==============================================================================
+# Grafana Alloy Helm Values Template (Architecture 1.1 Universal Shipper)
+# ==============================================================================
+
+alloy:
+  clustering:
+    enabled: {{ alloy_clustering_enabled | default(false) }}
+  
+  resources:
+    limits:
+      cpu: {{ (alloy_resources.limits.cpu if (alloy_resources is defined and alloy_resources.limits is defined) else '300m') }}
+      memory: {{ (alloy_resources.limits.memory if (alloy_resources is defined and alloy_resources.limits is defined) else '256Mi') }}
+    requests:
+      cpu: {{ (alloy_resources.requests.cpu if (alloy_resources is defined and alloy_resources.requests is defined) else '100m') }}
+      memory: {{ (alloy_resources.requests.memory if (alloy_resources is defined and alloy_resources.requests is defined) else '128Mi') }}
+
+  extraPorts:
+    - name: otlp-grpc
+      port: {{ alloy_otlp_grpc_port | default(4317) }}
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: {{ alloy_otlp_http_port | default(4318) }}
+      targetPort: 4318
+      protocol: TCP
+
+  mounts:
+    extra:
+      - name: varlog
+        mountPath: /var/log
+        readOnly: true
+      - name: varlibdockercontainers
+        mountPath: /var/lib/docker/containers
+        readOnly: true
+
+  configMap:
+    create: true
+    content: |-
+      // ==========================================================================
+      // Grafana Alloy Pipeline Configuration (River)
+      // ==========================================================================
+
+      // 1. TAIL CONTAINER LOGS FROM HOST DISK
+      local.file_match "pod_logs" {
+        path_targets = [
+          {
+            __path__ = "/var/log/pods/*/*/*.log",
+          },
+        ]
+      }
+
+      loki.source.file "pod_logs" {
+        targets    = local.file_match.pod_logs.targets
+        forward_to = [loki.process.k8s_filter.receiver]
+      }
+
+      loki.process "k8s_filter" {
+        stage.drop {
+          source = "filename"
+          expression = ".*alloy.*"
+        }
+        forward_to = [loki.write.loki_backend.receiver]
+      }
+
+      loki.write "loki_backend" {
+        endpoint {
+          url = "{{ loki_push_url }}"
+        }
+      }
+
+      // 2. RECEIVE OPENTELEMETRY TRACES & METRICS FROM APPS
+      otelcol.receiver.otlp "default" {
+        grpc {
+          endpoint = "0.0.0.0:{{ alloy_otlp_grpc_port | default(4317) }}"
+        }
+        http {
+          endpoint = "0.0.0.0:{{ alloy_otlp_http_port | default(4318) }}"
+        }
+        output {
+          traces = [otelcol.exporter.otlp.jaeger_backend.input]
+        }
+      }
+
+      // 3. EXPORT TRACES TO JAEGER / TEMPO
+      otelcol.exporter.otlp "jaeger_backend" {
+        client {
+          endpoint = "{{ jaeger_otlp_grpc_endpoint }}"
+          tls {
+            insecure = true
+          }
+        }
+      }
+
+service:
+  enabled: true
+  type: ClusterIP
+  ports:
+    - name: otlp-grpc
+      port: {{ alloy_otlp_grpc_port | default(4317) }}
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: {{ alloy_otlp_http_port | default(4318) }}
+      targetPort: 4318
+      protocol: TCP
