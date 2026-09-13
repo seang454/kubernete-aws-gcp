@@ -170,7 +170,7 @@ flowchart TD
             app1["Microservices (OTel SDK) & Daemons"]
             kps1["🔥 kube-prometheus-stack<br><i>(Prometheus + Node Exp + cAdvisor + KSM)</i>"]
             thanosSidecar1["🛡️ Thanos Sidecar<br><i>(Uploads 2h TSDB blocks to S3)</i>"]
-            alloy1["🟣 Grafana Alloy (Edge Agent)<br><i>• Tails /var/log/pods<br>• PII & Secret Redaction<br>• Tail-Based Trace Sampling</i>"]
+            alloy1["🟣 Grafana Alloy (Edge Agent)<br><i>• Tails /var/log/pods<br>• PII & Secret Redaction<br>• Tail-Based Trace Sampling<br>• Fans Out Raw vs. Audit Logs</i>"]
             
             app1 --> alloy1
             app1 -.->|Scraped Metrics| kps1
@@ -181,7 +181,7 @@ flowchart TD
             app2["Microservices (OTel SDK) & Daemons"]
             kps2["🔥 kube-prometheus-stack<br><i>(Prometheus + Node Exp + cAdvisor + KSM)</i>"]
             thanosSidecar2["🛡️ Thanos Sidecar<br><i>(Uploads 2h TSDB blocks to GCS/S3)</i>"]
-            alloy2["🟣 Grafana Alloy (Edge Agent)<br><i>• Tails /var/log/pods<br>• PII & Secret Redaction<br>• Tail-Based Trace Sampling</i>"]
+            alloy2["🟣 Grafana Alloy (Edge Agent)<br><i>• Tails /var/log/pods<br>• PII & Secret Redaction<br>• Tail-Based Trace Sampling<br>• Fans Out Raw vs. Audit Logs</i>"]
             
             app2 --> alloy2
             app2 -.->|Scraped Metrics| kps2
@@ -190,14 +190,14 @@ flowchart TD
     end
 
     subgraph StreamingBuffer["⚡ RESILIENCE & SPIKE BUFFER (For Logs, Traces & Profiles)"]
-        kafka["📨 Apache Kafka / Redpanda<br><i>(Absorbs 50x outage retry storms without losing logs/traces)</i>"]
+        kafka["📨 Apache Kafka / Redpanda<br><i>(Absorbs 50x outage retry storms & fans out topics)</i>"]
         alloy1 -->|Clean Logs, Traces & Profiles| kafka
         alloy2 -->|Clean Logs, Traces & Profiles| kafka
     end
 
     subgraph ObjectStorage["☁️ CLOUD OBJECT STORAGE DATA LAKE (Pennies / GB / Month)"]
         s3Metrics[("🪣 AWS S3 / GCS: Metrics Bucket<br><i>(Thanos 2h Blocks + Downsampled 5m/1h Rollups)</i>")]
-        s3LogsTraces[("🪣 AWS S3 / GCS: Logs & Traces Bucket<br><i>(Loki Log Chunks & Tempo Trace Parquet)</i>")]
+        s3LogsTraces[("🪣 AWS S3 / GCS: Logs, Traces & Snapshots Bucket<br><i>(Loki Chunks, Tempo Parquet & OpenSearch ISM Snapshots)</i>")]
     end
 
     subgraph CentralPlatform["🏢 DEDICATED CENTRAL OBSERVABILITY PLATFORM (HA & Distributed)"]
@@ -207,8 +207,9 @@ flowchart TD
             thanosComp["Thanos Compactor<br><i>(Downsamples: Raw ➔ 5m ➔ 1h)</i>"]
         end
 
-        subgraph DistributedEngines["🟠 Distributed Log & Trace Storage (Microservices Mode)"]
+        subgraph DistributedEngines["🟠 Distributed Telemetry & Search Engines (Microservices Mode)"]
             distLoki["🟠🟡 Grafana Loki HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Index Gateway)</i>"]
+            distOS["🔍 OpenSearch Distributed Cluster<br><i>(Master Nodes ➔ Data Nodes ➔ Coordinators / Inverted Index & SIEM)</i>"]
             distTempo["🟠 Grafana Tempo HA<br><i>(Distributor ➔ Ingester ➔ Querier ➔ Compactor)</i>"]
             distPyro["🟠 Grafana Pyroscope HA<br><i>(Profile Ingesters & Aggregators)</i>"]
         end
@@ -217,6 +218,7 @@ flowchart TD
     subgraph GlobalUI["🎯 GLOBAL VISUALIZATION & GOVERNANCE (Single Pane of Glass)"]
         gw["Multi-Tenant Gateway<br><i>(SSO / RBAC / Quota Enforcement)</i>"]
         grafana["🟠 Unified Grafana Enterprise / HA<br><i>Dropdown Filter: [ All Clusters | AWS-Prod | GCP-Prod ]</i>"]
+        osDash["🔍 OpenSearch Dashboards HA<br><i>(Security Analytics, SIEM Rules & Forensic Discovery)</i>"]
         alerts["Global Alertmanager HA<br><i>(Slack / PagerDuty / OpsGenie)</i>"]
     end
 
@@ -229,20 +231,24 @@ flowchart TD
     s3Metrics <--> thanosComp
     thanosStore --> thanosQ
 
-    %% Logs & Traces Flows (Kafka -> Loki/Tempo/Pyroscope -> S3)
-    kafka --> distLoki
-    kafka --> distTempo
-    kafka --> distPyro
+    %% Logs, Traces & Search Flows (Kafka -> Loki/OpenSearch/Tempo/Pyroscope -> S3)
+    kafka -->|Raw Container Logs| distLoki
+    kafka -->|Security & Audit Logs| distOS
+    kafka -->|Traces| distTempo
+    kafka -->|Profiles| distPyro
     distLoki --> s3LogsTraces
+    distOS -->|Automated Snapshots via ISM| s3LogsTraces
     distTempo --> s3LogsTraces
     distPyro --> s3LogsTraces
 
-    %% Global Queries into Grafana
+    %% Global Queries into Grafana & Dashboards
     thanosQ --> gw
     distLoki --> gw
+    distOS -.->|OpenSearch Datasource| gw
     distTempo --> gw
     distPyro --> gw
     gw --> grafana
+    distOS --> osDash
     thanosQ --> alerts
 ```
 
@@ -503,8 +509,8 @@ flowchart TD
 > 2. **Zero-Downtime Maintenance:** You can shut down Loki or Tempo for **2 hours** to upgrade versions or apply patches. When they boot back up, they resume reading from Kafka right where they stopped—with **zero data loss**.
 > 3. **Cross-Cloud Disconnect Resilience:** If the internet connection between your AWS cluster and your GCP central cluster flickers, Kafka safely queues all messages on disk.
 > 4. **Fan-Out ("Write Once, Read Many"):** Ship telemetry to Kafka once, then multiple tools consume in parallel:
->    - Consumer 1: **Grafana Loki** (DevOps debugging)
->    - Consumer 2: **SIEM / Wazuh / Splunk** (Cyber Security & Compliance audits)
+>    - Consumer 1: **Grafana Loki** (DevOps fast grep & container log debugging)
+>    - Consumer 2: **OpenSearch / SIEM** (Cyber Security, compliance audits & full-text discovery via OpenSearch Dashboards)
 >    - Consumer 3: **AI Anomaly Detection Model**
 > 
 > **The Water Dam Analogy:** Kafka is like a **Hydroelectric Dam**. When a torrential hurricane hits (an outage), the dam absorbs the massive floodwaters and releases them through the spillway at a safe, controlled speed so the city below never drowns!
@@ -516,7 +522,7 @@ flowchart TD
 > 
 > The difference is:
 > - **In Diagram 1.1 (Single-Binary Mode):** They are all **crammed into ONE single pod** as internal threads to keep resource usage low (<500MB RAM).
-> - **In Diagrams 1.2 & 1.3 (Microservices Mode):** They are **split into separate, independent Kubernetes pods** that auto-scale independently (e.g., Loki HA & Tempo HA in 1.2/1.3; Mimir HA in 1.3; and Thanos Querier/Store Gateway/Compactor in 1.2).
+> - **In Diagrams 1.2 & 1.3 (Microservices Mode):** They are **split into separate, independent Kubernetes pods** that auto-scale independently (e.g., Loki HA, OpenSearch Distributed Cluster & Tempo HA in 1.2/1.3; Mimir HA in 1.3; and Thanos Querier/Store Gateway/Compactor in 1.2).
 > 
 > ```text
 > IN ARCHITECTURE 1.1 (The "All-in-One" Swiss Army Knife):
