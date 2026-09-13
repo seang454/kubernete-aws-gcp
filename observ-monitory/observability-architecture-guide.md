@@ -28,7 +28,11 @@ flowchart TD
         alloy["🟣 Grafana Alloy / OpenTelemetry Collector<br><i>(All-in-One Universal Shipper for Metrics, Logs, Traces & Profiles)</i>"]
     end
 
-    subgraph Storage["3. STORAGE & ANALYSIS ENGINES (The 4 Pillars + Full-Text Search)"]
+    subgraph StreamingBuffer["3. RESILIENCE & STREAMING BUFFER (Decoupled Message Queue)"]
+        kafka["📨 Apache Kafka / Redpanda<br><i>(Durable Ingestion Buffer, Spike Absorber & Fan-Out Queue)</i>"]
+    end
+
+    subgraph Storage["4. STORAGE & ANALYSIS ENGINES (The 4 Pillars + Full-Text Search)"]
         prom["🔥 Prometheus / Mimir / Thanos<br><i>(Metrics Engine: PromQL)</i>"]
         loki["🟠🟡 Grafana Loki<br><i>(Log Engine: LogQL)</i>"]
         opensearch["🔍 OpenSearch<br><i>(Search & Log Engine: Lucene / DQL)</i>"]
@@ -37,9 +41,9 @@ flowchart TD
         s3[("Cloud Object Storage<br><i>AWS S3 / GCS / MinIO / Longhorn<br>(Cheap Long-Term Storage)</i>")]
     end
 
-    subgraph Actions["4. ALERTING & VISUALIZATION (Single Pane of Glass + Specialized SIEM)"]
+    subgraph Actions["5. ALERTING & VISUALIZATION (Single Pane of Glass + Specialized SIEM)"]
         alertmgr["Alertmanager<br><i>(Alert deduplication & routing)</i>"]
-        grafana["🟠 Grafana (Unified Web Dashboard)<br><i>(Single UI for Metrics, Logs, Traces & Profiles)</i>"]
+        grafana["🟠 Unified Grafana (Web Dashboard)<br><i>(Single UI for Metrics, Logs, Traces & Profiles)</i>"]
         osDash["🔍 OpenSearch Dashboards<br><i>(Specialized Log Discovery, SIEM & Anomaly Detection)</i>"]
         notifications["Team Alerts<br><i>(Slack, PagerDuty, Email)</i>"]
     end
@@ -52,12 +56,13 @@ flowchart TD
     appOTel -->|Sends OTLP Traces & Metrics| alloy
     appPyro -->|Sends CPU/Memory Profiles| alloy
 
-    %% Pipeline routing to Storage
+    %% Pipeline routing to Buffer & Storage
     alloy -->|Pushes or exposes Metrics| prom
-    alloy -->|Pushes compressed Pod Logs| loki
-    alloy -->|Pushes Structured / Audit Logs| opensearch
-    alloy -->|Pushes Traces via OTLP| tempo
-    alloy -->|Pushes Profile Snapshots| pyro
+    alloy -->|Streams Logs, Traces & Profiles| kafka
+    kafka -->|Raw Pod Logs| loki
+    kafka -->|Structured / Audit Logs| opensearch
+    kafka -->|Traces via OTLP| tempo
+    kafka -->|Profile Snapshots| pyro
 
     %% Long-term Object Storage offload
     loki -.->|Archives log chunks| s3
@@ -93,12 +98,19 @@ flowchart TD
     │     "Is the server slow?"     │ │  "Any crash?"  │ │ "Who accessed?"  │ │"Which ms?│ │"Which code line?" │
     └───────────────▲───────────────┘ └────────▲───────┘ └───────▲──────────┘ └────▲─────┘ └─────────▲─────────┘
                     │                          │                 │                 │                 │
-                    └──────────────────────────┼─────────────────┴─────────────────┼─────────────────┘
-                                               │                                   │
-                                 ┌─────────────┴───────────────────────────────────┴─┐
-                                 │                 🟣 GRAFANA ALLOY                  │
-                                 │   "The All-in-One Collector & Telemetry Router"   │
-                                 └─────────────────────────▲─────────────────────────┘
+                    │                          └─────────────────┼─────────────────┴─────────────────┤
+                    │                                            │                                   │
+                    │                              ┌─────────────┴───────────────────────────────────┴─┐
+                    │                              │           📨 APACHE KAFKA / REDPANDA             │
+                    │                              │   "The Durable Streaming Buffer & Fan-Out Queue"  │
+                    │                              └─────────────────────────▲─────────────────────────┘
+                    │                                                        │
+                    └──────────────────────────┬─────────────────────────────┘
+                                               │
+                                 ┌─────────────┴───────────────────────────────────┐
+                                 │                 🟣 GRAFANA ALLOY                │
+                                 │   "The All-in-One Collector & Telemetry Router" │
+                                 └─────────────────────────▲───────────────────────┘
                                                            │
                                                  [ YOUR APPLICATIONS ]
 ```
@@ -107,7 +119,7 @@ flowchart TD
 
 ### 1.1.1 Architectural Layer Taxonomy: What Every Component is Formally Called
 
-In enterprise cloud architecture and systems engineering, every component in Diagram 1.1 belongs to one of **4 Architectural Layers**, each with a precise, formal industry classification:
+In enterprise cloud architecture and systems engineering, every component in Diagram 1.1 belongs to one of **5 Architectural Layers**, each with a precise, formal industry classification:
 
 #### Layer 1: Data Sources & Exporters *(The Producers)*
 *These run inside the cluster and generate or extract raw telemetry signals from the operating system, containers, and applications.*
@@ -128,7 +140,14 @@ In enterprise cloud architecture and systems engineering, every component in Dia
 | :--- | :--- | :--- | :--- |
 | **Grafana Alloy / OpenTelemetry Collector** | **Unified Telemetry Pipeline** | *Universal Telemetry Shipper & Router* | A single DaemonSet/agent that tails logs, scrapes metrics, receives traces, transforms data (redacting secrets, adding labels), and fans out streams to multiple backends simultaneously. |
 
-#### Layer 3: Storage & Query Engines *(The Backends)*
+#### Layer 3: Resilience & Streaming Buffer *(The Shock Absorbers)*
+*The distributed log queue that isolates collection agents from storage backends, absorbs traffic spikes, and enables multi-consumer fan-out.*
+
+| Component | Formal Architectural Classification | What It Is Called in Industry | Core Role |
+| :--- | :--- | :--- | :--- |
+| **Apache Kafka / Redpanda** | **Distributed Message Broker / Streaming Buffer** | *Streaming Telemetry Queue* | Decouples edge collectors from storage backends, absorbs 50x outage retry storms on durable NVMe disk, and enables independent multi-consumer fan-out. |
+
+#### Layer 4: Storage & Query Engines *(The Backends)*
 *Specialized data engines that index, compress, persist, and execute distributed queries for specific signal types.*
 
 | Component | Formal Architectural Classification | What It Is Called in Industry | Core Role |
@@ -139,7 +158,7 @@ In enterprise cloud architecture and systems engineering, every component in Dia
 | **Grafana Tempo / Jaeger** | **Distributed Tracing Engine** | *Trace Storage & Query Engine* | Reassembles distributed microservice spans by `TraceID` into waterfall latency trees using TraceQL. |
 | **Grafana Pyroscope** | **Continuous Profiling Engine** | *Call-Stack Profiling Engine* | Aggregates millions of runtime function stack traces into interactive visual Flame Graphs. |
 
-#### Layer 4: Alerting & Visualization *(The Consumers & UIs)*
+#### Layer 5: Alerting & Visualization *(The Consumers & UIs)*
 *The human and machine interfaces used to alert engineers, investigate incidents, and visualize data.*
 
 | Component | Formal Architectural Classification | What It Is Called in Industry | Core Role |
@@ -148,14 +167,15 @@ In enterprise cloud architecture and systems engineering, every component in Dia
 | **Grafana** | **Unified Observability Platform** | *Single Pane of Glass UI* | The central web dashboard that connects to all backends (Prometheus + Loki + OpenSearch + Tempo/Jaeger) in one shared visual interface. |
 | **OpenSearch Dashboards** | **Search & SIEM Analytics Interface** | *Dedicated Log Discovery & Security UI* | The specialized web console (open-source Kibana fork) for deep-dive log discovery, index management (ISM), Dev Tools, and security anomaly detection. |
 
-#### 💡 Quick Summary Cheat Sheet: The 4 Questions
+#### 💡 Quick Summary Cheat Sheet: The 5 Questions
 
 | Layer | The Question it Answers | Standard Industry Term |
 | :--- | :--- | :--- |
 | **Layer 1: Sources** | *"Where does telemetry originate?"* | **Exporters & Instrumentation Agents** |
 | **Layer 2: Pipeline** | *"How does telemetry get moved?"* | **Unified Collector / Telemetry Shipper** |
-| **Layer 3: Storage** | *"Where is telemetry stored & calculated?"* | **Telemetry Engines** |
-| **Layer 4: Actions** | *"How do humans see & react to telemetry?"* | **Alert Router & Visualization UIs** |
+| **Layer 3: Buffer** | *"How is telemetry buffered against surges?"* | **Message Streaming Buffer / Queue** |
+| **Layer 4: Storage** | *"Where is telemetry stored & calculated?"* | **Telemetry Engines** |
+| **Layer 5: Actions** | *"How do humans see & react to telemetry?"* | **Alert Router & Visualization UIs** |
 
 ---
 
@@ -769,6 +789,7 @@ flowchart LR
 | **Grafana** | Unified Dashboard | Visualization UI | `3000` | Single pane of glass dashboard combining Prometheus, Loki, OpenSearch, and Jaeger. |
 | **Kibana** | Analytics UI | Elasticsearch Dashboard | `5601` | Dedicated search UI and visualization interface for Elasticsearch clusters. |
 | **OpenSearch Dashboards** | UI & Visualization | Log discovery, search queries, dashboards, and SIEM | `5601` | Stateless web interface connecting to OpenSearch cluster for search, SIEM, and ISM. |
+| **Apache Kafka** | Streaming Buffer | Ingestion buffer & resilience queue | `9092` (TCP), `9093` (SSL) | Absorbs 50x outage surges, decouples edge collectors from backends, fans out streams. |
 
 ---
 
