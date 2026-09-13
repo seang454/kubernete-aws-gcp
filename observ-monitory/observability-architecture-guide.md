@@ -31,7 +31,7 @@ flowchart TD
     subgraph Storage["3. STORAGE & ANALYSIS ENGINES (The 4 Pillars + Full-Text Search)"]
         prom["🔥 Prometheus / Mimir / Thanos<br><i>(Metrics Engine: PromQL)</i>"]
         loki["🟠🟡 Grafana Loki<br><i>(Log Engine: LogQL)</i>"]
-        opensearch["🔍 OpenSearch<br><i>(Full-Text Log Analytics & SIEM)</i>"]
+        opensearch["🔍 OpenSearch<br><i>(Search & Log Engine: Lucene / DQL)</i>"]
         tempo["🟠 Grafana Tempo / Jaeger<br><i>(Tracing Engine: TraceQL)</i>"]
         pyro["🟠 Grafana Pyroscope<br><i>(Profiling Engine: Flame Graphs)</i>"]
         s3[("Cloud Object Storage<br><i>AWS S3 / GCS / MinIO / Longhorn<br>(Cheap Long-Term Storage)</i>")]
@@ -79,31 +79,83 @@ flowchart TD
     pyro -->|Flame Graph Queries| grafana
 ```
 
-#### 🧠 Unified Mental Model: How All 4 Pillars Connect
+##### 🧠 Unified Mental Model: How All 4 Pillars Connect
 
 ```text
-                               ┌──────────────────────────────────────────────┐
-                               │             🟠 GRAFANA (WEB UI)              │
-                               │   "The Single Pane of Glass to see it all"   │
-                               └──────┬──────────┬──────────┬──────────┬──────┘
-                                      │          │          │          │
-   ┌──────────────────────────────────┴──┐ ┌─────┴─────┐ ┌──┴───────┐ ┌┴─────────────────┐
-   │        🔥 PROMETHEUS / MIMIR        │ │ 🟠🟡 LOKI │ │ 🟠 TEMPO │ │  🟠 PYROSCOPE    │
-   │               METRICS               │ │   LOGS    │ │  TRACES  │ │     PROFILES     │
-   │        "Is the server slow?"        │ │ "Any error│ │ "Which ms│ │ "Which exact line│
-   │                                     │ │ message?" │ │ is slow?"│ │  of code burned  │
-   │                                     │ │           │ │          │ │    the CPU?"     │
-   └──────────────────▲──────────────────┘ └───▲───────┘ └───▲──────┘ └────────▲─────────┘
-                      │                        │             │                 │
-                      └────────────────────────┼─────────────┴─────────────────┘
-                                               │
-                                 ┌─────────────┴─────────────┐
-                                 │     🟣 GRAFANA ALLOY      │
-                                 │ "The All-in-One Collector"│
-                                 └─────────────▲─────────────┘
-                                               │
-                                     [ YOUR APPLICATIONS ]
+                                       ┌────────────────────────────────────────────────────────────────────────┐
+                                       │                          🟠 GRAFANA (WEB UI)                           │
+                                       │                "The Single Pane of Glass to see it all"                │
+                                       └───────────┬─────────────┬─────────────┬─────────────┬────────────┬─────┘
+                                                   │             │             │             │            │
+    ┌───────────────────────────────┐ ┌────────────┴───┐ ┌───────┴──────────┐ ┌┴──────────┐ ┌┴───────────┴───┐
+    │     🔥 PROMETHEUS / MIMIR     │ │  🟠🟡 LOKI     │ │  🔍 OPENSEARCH   │ │ 🟠 TEMPO │ │  🟠 PYROSCOPE     │
+    │            METRICS            │ │    RAW LOGS    │ │ FULL-TEXT & SIEM │ │  TRACES  │ │     PROFILES      │
+    │     "Is the server slow?"     │ │  "Any crash?"  │ │ "Who accessed?"  │ │"Which ms?│ │"Which code line?" │
+    └───────────────▲───────────────┘ └────────▲───────┘ └───────▲──────────┘ └────▲─────┘ └─────────▲─────────┘
+                    │                          │                 │                 │                 │
+                    └──────────────────────────┼─────────────────┴─────────────────┼─────────────────┘
+                                               │                                   │
+                                 ┌─────────────┴───────────────────────────────────┴─┐
+                                 │                 🟣 GRAFANA ALLOY                  │
+                                 │   "The All-in-One Collector & Telemetry Router"   │
+                                 └─────────────────────────▲─────────────────────────┘
+                                                           │
+                                                 [ YOUR APPLICATIONS ]
 ```
+
+---
+
+### 1.1.1 Architectural Layer Taxonomy: What Every Component is Formally Called
+
+In enterprise cloud architecture and systems engineering, every component in Diagram 1.1 belongs to one of **4 Architectural Layers**, each with a precise, formal industry classification:
+
+#### Layer 1: Data Sources & Exporters *(The Producers)*
+*These run inside the cluster and generate or extract raw telemetry signals from the operating system, containers, and applications.*
+
+| Component | Formal Architectural Classification | What It Is Called in Industry | Core Role |
+| :--- | :--- | :--- | :--- |
+| **Node Exporter** | **Host Metrics Exporter / Agent** | *Infrastructure Metric Exporter* | Extracts raw Linux kernel statistics (CPU, RAM, Disk I/O, Network interfaces) and exposes them over HTTP `/metrics`. |
+| **cAdvisor** | **Container Resource Agent** | *Container Metric Collector* | Embedded inside the Kubernetes `kubelet`; measures container cgroup resource consumption and limits. |
+| **kube-state-metrics (KSM)** | **Kubernetes State Exporter** | *Cluster Object Metrics Exporter* | Listens to the Kubernetes API server to generate metrics about Kubernetes resources (Pod health, Deployments, ReplicaSets, PVC status). |
+| **Application Logs** | **Raw Telemetry Stream** | *Container Stdout / Stderr Stream* | Raw text and JSON events written by containers to the host filesystem at `/var/log/pods/`. |
+| **Microservice Apps** | **Instrumented Application** | *Telemetry Producer (SDK-Instrumented)* | Your custom microservice code equipped with the OpenTelemetry SDK to emit HTTP/gRPC request spans and traces. |
+| **App Runtimes / eBPF** | **Continuous Profiling Agent** | *Runtime / Kernel Profiler* | Hooks into application runtimes (JVM, Go, Python, Node.js) or the Linux kernel via eBPF to continuously sample call stacks. |
+
+#### Layer 2: Unified Collection Pipeline *(The Shippers)*
+*The single data pipe that collects, parses, transforms, filters, and routes data from producers to the storage engines.*
+
+| Component | Formal Architectural Classification | What It Is Called in Industry | Core Role |
+| :--- | :--- | :--- | :--- |
+| **Grafana Alloy / OpenTelemetry Collector** | **Unified Telemetry Pipeline** | *Universal Telemetry Shipper & Router* | A single DaemonSet/agent that tails logs, scrapes metrics, receives traces, transforms data (redacting secrets, adding labels), and fans out streams to multiple backends simultaneously. |
+
+#### Layer 3: Storage & Query Engines *(The Backends)*
+*Specialized data engines that index, compress, persist, and execute distributed queries for specific signal types.*
+
+| Component | Formal Architectural Classification | What It Is Called in Industry | Core Role |
+| :--- | :--- | :--- | :--- |
+| **Prometheus / Mimir / Thanos** | **Time-Series Metrics Engine** | *Metrics Storage & PromQL Engine* | Stores numeric, timestamped floating-point values; evaluates PromQL queries, thresholds, and alert rules. |
+| **Grafana Loki** | **Log Aggregation Engine** | *Label-Indexed Log Engine* | Compresses raw log chunks without building heavy inverted text indexes; enables fast, cost-effective grep-style LogQL queries. |
+| **OpenSearch** | **Search & Log Engine** | *Distributed Full-Text Search Engine* | Builds Apache Lucene inverted indices across every word and JSON field; enables sub-second text search, aggregations, and SIEM security analysis. |
+| **Grafana Tempo / Jaeger** | **Distributed Tracing Engine** | *Trace Storage & Query Engine* | Reassembles distributed microservice spans by `TraceID` into waterfall latency trees using TraceQL. |
+| **Grafana Pyroscope** | **Continuous Profiling Engine** | *Call-Stack Profiling Engine* | Aggregates millions of runtime function stack traces into interactive visual Flame Graphs. |
+
+#### Layer 4: Alerting & Visualization *(The Consumers & UIs)*
+*The human and machine interfaces used to alert engineers, investigate incidents, and visualize data.*
+
+| Component | Formal Architectural Classification | What It Is Called in Industry | Core Role |
+| :--- | :--- | :--- | :--- |
+| **Alertmanager** | **Alert Notification Manager** | *Alert Routing & Deduplication Engine* | Receives alert fires from Prometheus, groups duplicate alerts, handles mute/silence maintenance windows, and dispatches to Slack, PagerDuty, or Email. |
+| **Grafana** | **Unified Observability Platform** | *Single Pane of Glass UI* | The central web dashboard that connects to all backends (Prometheus + Loki + OpenSearch + Tempo/Jaeger) in one shared visual interface. |
+| **OpenSearch Dashboards** | **Search & SIEM Analytics Interface** | *Dedicated Log Discovery & Security UI* | The specialized web console (open-source Kibana fork) for deep-dive log discovery, index management (ISM), Dev Tools, and security anomaly detection. |
+
+#### 💡 Quick Summary Cheat Sheet: The 4 Questions
+
+| Layer | The Question it Answers | Standard Industry Term |
+| :--- | :--- | :--- |
+| **Layer 1: Sources** | *"Where does telemetry originate?"* | **Exporters & Instrumentation Agents** |
+| **Layer 2: Pipeline** | *"How does telemetry get moved?"* | **Unified Collector / Telemetry Shipper** |
+| **Layer 3: Storage** | *"Where is telemetry stored & calculated?"* | **Telemetry Engines** |
+| **Layer 4: Actions** | *"How do humans see & react to telemetry?"* | **Alert Router & Visualization UIs** |
 
 ---
 
