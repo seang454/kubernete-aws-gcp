@@ -278,17 +278,21 @@ observ-monitory/
 
 ---
 
-### 8. `roles/alloy` (Inside Kubernetes)
+### 10. `roles/alloy` (Inside Kubernetes)
 * **What it installs:**
   * **Grafana Alloy**: Universal telemetry shipper running as a `DaemonSet` on **every Kubernetes node**.
-  * **Log Tailing**: Directly mounts `/var/log/pods/` to ship container stdout/stderr to Loki.
+  * **Log Tailing**: Directly mounts `/var/log/pods/` to ship container stdout/stderr to Loki or OpenSearch.
   * **Trace Receiver**: Listens on ports `4317` (gRPC) and `4318` (HTTP) for in-cluster OTLP traces from microservices and forwards them to Jaeger.
 * **Deployment Method:** Helm chart `grafana/alloy`.
-* **When to use:** The central unified collector for Architecture 1.1 (replaces standalone Promtail).
+* **When to use:** The central unified collector for Architecture 1.1 (replaces standalone Promtail and standalone OTel Collector).
+* **Architecture Note (All-in-One Collector):**
+  > [!NOTE]
+  > **Is Alloy used to make all types of collectors in one place? YES!**
+  > Rather than running 4 separate DaemonSets on every worker node (Promtail for logs, Prometheus Scraper for metrics, OpenTelemetry Collector for traces, and Pyroscope for profiles)—which would consume ~600MB RAM on every node—**Grafana Alloy combines all 4 collector engines into a single lightweight DaemonSet (~120MB RAM)**. See full deep dive in [observability-architecture-guide.md](file:///home/seang/kubernete-aws-gcp/single-cluster/observability-architecture-guide.md#25-deep-dive-is-grafana-alloy-used-to-make-all-types-of-collectors-in-one-place).
 
 ---
 
-### 8. `roles/grafana_dashboards` (Inside Kubernetes)
+### 11. `roles/grafana_dashboards` (Inside Kubernetes)
 * **What it installs:**
   * Curated, pre-built visual dashboards deployed as Kubernetes `ConfigMaps` with the label `grafana_dashboard: "1"`.
   * Grafana's dashboard sidecar automatically detects these ConfigMaps and imports them into Grafana:
@@ -302,7 +306,7 @@ observ-monitory/
 
 ---
 
-### 6. `roles/host_observability` (OUTSIDE Kubernetes — Standalone VMs)
+### 12. `roles/host_observability` (OUTSIDE Kubernetes — Standalone VMs)
 * **What it installs:**
   * **prometheus-node-exporter**: Installs Node Exporter via `apt` as a Linux background `systemd` service on port `9100`.
   * **Grafana Alloy**: Installs Alloy via `apt` as a Linux background `systemd` service to tail `/var/log/syslog` on the host VM and stream logs into Loki.
@@ -311,7 +315,7 @@ observ-monitory/
 
 ---
 
-### 7. `roles/ceph_observability` (OUTSIDE Kubernetes — Ceph Storage)
+### 13. `roles/ceph_observability` (OUTSIDE Kubernetes — Ceph Storage)
 * **What it installs:**
   * Enables the Ceph Manager Prometheus exporter module (`ceph mgr module enable prometheus`) on port `9283`.
 * **Deployment Method:** Ceph administrative CLI commands.
@@ -330,10 +334,13 @@ observ-monitory/
 | **5. cAdvisor** | `prometheus_stack` | Scrapes **`kubelet` on all 7 nodes** | ✅ **YES** |
 | **6. kube-state-metrics** | `prometheus_stack` | `Deployment` Pod (Cluster object stats) | ✅ **YES** |
 | **7. Loki** | `loki_stack` | `StatefulSet` Pod + Longhorn Storage | ✅ **YES** |
-| **8. Promtail** | `loki_stack` | `DaemonSet` (Tails logs on **all 7 nodes**) | ✅ **YES** |
+| **8. Grafana Alloy** | `alloy` | `DaemonSet` (All-in-one shipper on **all 7 nodes**) | ✅ **YES** |
 | **9. Jaeger** | `jaeger` | `Deployment` Pod + Service (Tracing UI) | ✅ **YES** |
-| **10. OpenTelemetry Collector** | `opentelemetry` | `Deployment` Pod (OTLP Ports 4317/4318) | ✅ **YES** |
-| **11. Elasticsearch + Kibana** | Replaced by **Loki + Grafana** | Cloud-Native Log Engine in Grafana | 💡 **Optimized** |
+| **10. OpenTelemetry Collector** | `opentelemetry` / `alloy` | Built into Alloy or standalone Deployment | ✅ **YES** |
+| **11. OpenSearch & Dashboards** | `opensearch` | StatefulSet + Dashboards Deployment | ✅ **YES** |
+| **12. Kafka KRaft Cluster** | `kafka` | 3-Node StatefulSet cluster | 🟡 Optional toggle |
+| **13. Debezium & Schema Registry** | `debezium`, `schema_registry` | CDC Connect + Avro Registry Deployments | 🟡 Optional toggle |
+| **14. Kafka UI** | `kafka_ui` | Web Management Console Deployment | 🟡 Optional toggle |
 
 ---
 
@@ -341,29 +348,29 @@ observ-monitory/
 
 * **Resource Footprint:** Elasticsearch + Kibana requires **8GB to 16GB+ of RAM** just to idle. Because your worker nodes are lightweight cloud instances (`t3.small`), running Elasticsearch would cause immediate **Out-Of-Memory (OOM) crashes**.
 * **Efficiency:** Loki + Grafana gives you the exact same log aggregation, search, and dashboard capabilities using **less than 1GB of RAM**.
-* **Unified UI:** All logs collected by Promtail go directly into Loki, and you search them inside **Grafana** right next to your Prometheus metrics and Jaeger traces (single pane of glass)!
+* **Unified UI:** All logs collected by Alloy go directly into Loki, and you search them inside **Grafana** right next to your Prometheus metrics and Jaeger traces (single pane of glass)!
 
 ---
 
 ## 🚀 Execution Instructions
 
 ### 1. Deploy the Complete Monitoring Stack
-Deploys Prometheus, Alertmanager, Grafana, Node Exporter, kube-state-metrics, Loki, Promtail, Jaeger, and OpenTelemetry Collector:
+Deploys Prometheus, Alertmanager, Grafana, Node Exporter, kube-state-metrics, Loki, Alloy, Jaeger, OpenSearch, and optional Kafka/CDC components:
 ```bash
-cd ~/kubernete-aws-gcp/observ-monitory
+cd ~/kubernete-aws-gcp/single-cluster
 ansible-playbook -i inventory.ini site.yml
 ```
 
 ### 2. Verify System Health & Pod Status
-Checks that all 10 observability components, DaemonSets on all 7 nodes, and datasources are running:
+Checks that all observability components, DaemonSets on all 7 nodes, and datasources are running:
 ```bash
-cd ~/kubernete-aws-gcp/observ-monitory
+cd ~/kubernete-aws-gcp/single-cluster
 ansible-playbook -i inventory.ini verify.yml
 ```
 
 ### 3. Uninstall & Clean Up Cluster
 Uninstalls all Helm releases, deletes the `monitoring` namespace, and frees up all CPU, RAM, and storage:
 ```bash
-cd ~/kubernete-aws-gcp/observ-monitory
+cd ~/kubernete-aws-gcp/single-cluster
 ansible-playbook -i inventory.ini uninstall.yml
 ```
