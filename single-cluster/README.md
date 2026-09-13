@@ -224,6 +224,9 @@ observ-monitory/
   * **OTel Service**: Exposes `otel-collector` inside the cluster so applications can send telemetry to `http://otel-collector.monitoring.svc:4317`.
 * **Deployment Method:** Kubernetes native `Deployment`, `ConfigMap`, and `Service` manifests.
 * **When to use:** Legacy/alternative collector. In Architecture 1.1, `roles/alloy` is preferred as the universal unified shipper.
+* **Architecture Note (SDK in App vs. Collector in K8s):**
+  * **In Applications:** Developers embed the **OpenTelemetry SDK** (`@opentelemetry/sdk`, Java agent, Go SDK) into their code to generate traces.
+  * **In Kubernetes:** The **Collector** runs as a central gateway. Apps dump telemetry locally to the Collector in `< 1ms` (zero application slowdown), and the Collector handles batching, PII redaction, retries, and routing to Jaeger/Loki/Prometheus without touching application code. *(See full deep dive in [observability-architecture-guide.md](file:///home/seang/kubernete-aws-gcp/single-cluster/observability-architecture-guide.md#24-deep-dive-why-install-opentelemetry-in-kubernetes-if-its-already-in-the-application))*.
 
 ---
 
