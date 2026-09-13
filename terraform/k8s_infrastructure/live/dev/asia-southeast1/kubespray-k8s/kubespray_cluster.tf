@@ -1,16 +1,18 @@
 locals {
   # Calculate effective node counts
-  effective_gcp_control_plane_count = var.gcp_control_plane_count != null ? var.gcp_control_plane_count : var.control_plane_count
-  effective_aws_control_plane_count = var.aws_control_plane_count
-  effective_gcp_worker_count        = var.gcp_worker_count
-  effective_aws_worker_count        = var.aws_worker_count
+  effective_gcp_control_plane_count = var.enable_gcp ? (var.gcp_control_plane_count != null ? var.gcp_control_plane_count : var.control_plane_count) : 0
+  effective_aws_control_plane_count = var.enable_aws ? var.aws_control_plane_count : 0
+  effective_do_control_plane_count  = var.enable_digitalocean ? var.digitalocean_control_plane_count : 0
+  effective_gcp_worker_count        = var.enable_gcp ? var.gcp_worker_count : 0
+  effective_aws_worker_count        = var.enable_aws ? var.aws_worker_count : 0
+  effective_do_worker_count         = var.enable_digitalocean ? var.digitalocean_worker_count : 0
 
   # Total counts
-  total_control_planes = local.effective_gcp_control_plane_count + local.effective_aws_control_plane_count
-  total_workers        = local.effective_gcp_worker_count + local.effective_aws_worker_count
+  total_control_planes = local.effective_gcp_control_plane_count + local.effective_aws_control_plane_count + local.effective_do_control_plane_count
+  total_workers        = local.effective_gcp_worker_count + local.effective_aws_worker_count + local.effective_do_worker_count
   total_nodes          = local.total_control_planes + local.total_workers
 
-  # Calculate instance names for GCP and AWS for preflight checks and clean exclude routing
+  # Calculate instance names for GCP, AWS, and DigitalOcean for preflight checks and clean exclude routing
   gcp_control_plane_names = [
     for i in range(local.effective_gcp_control_plane_count) :
     format("%s-%s%02d", var.instance_name_prefix, var.control_plane_name_prefix, i + 1)
@@ -31,15 +33,27 @@ locals {
   ]
   aws_instance_names = concat(local.aws_control_plane_names, local.aws_worker_names)
 
-  all_instance_names = concat(local.gcp_instance_names, local.aws_instance_names)
+  do_control_plane_names = [
+    for i in range(local.effective_do_control_plane_count) :
+    format("%s-%s%02d", var.instance_name_prefix, var.control_plane_name_prefix, i + 1 + local.effective_gcp_control_plane_count + local.effective_aws_control_plane_count)
+  ]
+  do_worker_names = [
+    for i in range(local.effective_do_worker_count) :
+    format("%s-%s%02d", var.instance_name_prefix, var.worker_name_prefix, i + 1 + local.effective_gcp_worker_count + local.effective_aws_worker_count)
+  ]
+  do_instance_names = concat(local.do_control_plane_names, local.do_worker_names)
+
+  all_instance_names = concat(local.gcp_instance_names, local.aws_instance_names, local.do_instance_names)
 
   # Route exclude_nodes so submodules only receive names belonging to their cloud
   gcp_exclude_nodes = [for name in var.exclude_nodes : name if contains(local.gcp_instance_names, name)]
   aws_exclude_nodes = [for name in var.exclude_nodes : name if contains(local.aws_instance_names, name)]
+  do_exclude_nodes  = [for name in var.exclude_nodes : name if contains(local.do_instance_names, name)]
 
   # Route stop_nodes so submodules only receive names belonging to their cloud
   gcp_stop_nodes = [for name in var.stop_nodes : name if contains(local.gcp_instance_names, name)]
   aws_stop_nodes = [for name in var.stop_nodes : name if contains(local.aws_instance_names, name)]
+  do_stop_nodes  = [for name in var.stop_nodes : name if contains(local.do_instance_names, name)]
 }
 
 # Root preflight precondition: validate that all entries in exclude_nodes and stop_nodes exist
@@ -74,6 +88,7 @@ resource "terraform_data" "root_preflight" {
 module "gcp_kubespray_cluster" {
   source = "../../../../modules/gcp-kubespray-cluster"
 
+  enabled                         = var.enable_gcp
   cluster_name                    = var.cluster_name
   instance_name_prefix            = var.instance_name_prefix
   control_plane_count             = local.effective_gcp_control_plane_count
@@ -125,6 +140,7 @@ module "gcp_kubespray_cluster" {
 module "aws_kubespray_workers" {
   source = "../../../../modules/aws-kubespray-workers"
 
+  enabled                         = var.enable_aws
   cluster_name                    = var.cluster_name
   instance_name_prefix            = var.instance_name_prefix
   control_plane_count             = local.effective_aws_control_plane_count
@@ -152,17 +168,21 @@ module "aws_kubespray_workers" {
   ssh_user                        = var.ssh_user
   ssh_public_key                  = local.ssh_public_key
   ssh_source_ranges               = var.ssh_source_ranges
-  cluster_source_ranges           = distinct(concat(var.internal_source_ranges, [for ip in module.gcp_kubespray_cluster.cluster_public_ips : "${ip}/32" if ip != null && ip != ""]))
-  kubernetes_api_source_ranges    = var.kubernetes_api_source_ranges
-  wireguard_source_ranges         = var.wireguard_source_ranges
-  kubelet_source_ranges           = var.kubelet_source_ranges
-  nodeport_source_ranges          = var.nodeport_source_ranges
-  custom_firewall_rules           = var.custom_firewall_rules
-  desired_status                  = var.desired_status
-  allocate_elastic_ips            = var.aws_allocate_elastic_ips
-  source_dest_check               = var.aws_source_dest_check
-  exclude_nodes                   = local.aws_exclude_nodes
-  stop_nodes                      = local.aws_stop_nodes
+  cluster_source_ranges = distinct(concat(
+    var.internal_source_ranges,
+    [for ip in module.gcp_kubespray_cluster.cluster_public_ips : "${ip}/32" if ip != null && ip != ""],
+    [for ip in module.digitalocean_kubespray_cluster.cluster_public_ips : "${ip}/32" if ip != null && ip != ""]
+  ))
+  kubernetes_api_source_ranges = var.kubernetes_api_source_ranges
+  wireguard_source_ranges      = var.wireguard_source_ranges
+  kubelet_source_ranges        = var.kubelet_source_ranges
+  nodeport_source_ranges       = var.nodeport_source_ranges
+  custom_firewall_rules        = var.custom_firewall_rules
+  desired_status               = var.desired_status
+  allocate_elastic_ips         = var.aws_allocate_elastic_ips
+  source_dest_check            = var.aws_source_dest_check
+  exclude_nodes                = local.aws_exclude_nodes
+  stop_nodes                   = local.aws_stop_nodes
 
   tags = {
     environment = "dev"
@@ -173,10 +193,63 @@ module "aws_kubespray_workers" {
 }
 
 # ---------------------------------------------------------------------------
+# DigitalOcean Cluster Module (Control Plane Masters & Workers)
+# ---------------------------------------------------------------------------
+module "digitalocean_kubespray_cluster" {
+  source = "../../../../modules/digitalocean-kubespray-cluster"
+
+  enabled                    = var.enable_digitalocean
+  cluster_name               = var.cluster_name
+  instance_name_prefix       = var.instance_name_prefix
+  control_plane_count        = local.effective_do_control_plane_count
+  control_plane_name_prefix  = var.control_plane_name_prefix
+  control_plane_index_offset = local.effective_gcp_control_plane_count + local.effective_aws_control_plane_count
+  control_plane_sizes        = var.digitalocean_control_plane_sizes
+  worker_count               = local.effective_do_worker_count
+  worker_name_prefix         = var.worker_name_prefix
+  index_offset               = local.effective_gcp_worker_count + local.effective_aws_worker_count
+  region                     = var.digitalocean_region
+  regions                    = var.digitalocean_regions
+  auto_discover_up_regions   = var.digitalocean_auto_discover_up_regions
+  blocked_regions            = var.digitalocean_blocked_regions
+  worker_sizes               = var.digitalocean_worker_sizes
+  fallback_sizes             = var.digitalocean_fallback_sizes
+  blocked_sizes              = var.digitalocean_blocked_sizes
+  random_resource_type       = var.digitalocean_random_resource_type
+  image                      = var.digitalocean_image
+  vpc_uuid                   = var.digitalocean_vpc_uuid
+  allocate_reserved_ips      = var.digitalocean_allocate_reserved_ips
+  worker_data_disk_size_gb   = var.digitalocean_worker_data_disk_size_gb
+  ssh_user                   = var.ssh_user
+  ssh_public_key             = local.ssh_public_key
+  ssh_source_ranges          = var.ssh_source_ranges
+  cluster_source_ranges = distinct(concat(
+    var.internal_source_ranges,
+    [for ip in module.gcp_kubespray_cluster.cluster_public_ips : "${ip}/32" if ip != null && ip != ""],
+    [for ip in concat(module.aws_kubespray_workers.control_plane_public_ips, module.aws_kubespray_workers.worker_public_ips) : "${ip}/32" if ip != null && ip != ""]
+  ))
+  kubernetes_api_source_ranges = var.kubernetes_api_source_ranges
+  wireguard_source_ranges      = var.wireguard_source_ranges
+  kubelet_source_ranges        = var.kubelet_source_ranges
+  nodeport_source_ranges       = var.nodeport_source_ranges
+  custom_firewall_rules        = var.custom_firewall_rules
+  desired_status               = var.desired_status
+  exclude_nodes                = local.do_exclude_nodes
+  stop_nodes                   = local.do_stop_nodes
+  do_token                     = var.do_token
+
+  tags = [
+    "environment-dev",
+    "managed-by-terraform",
+    var.cluster_name
+  ]
+}
+
+# ---------------------------------------------------------------------------
 # Cross-Cloud Firewall: Allow traffic from AWS nodes to GCP cluster
 # ---------------------------------------------------------------------------
 resource "google_compute_firewall" "allow_aws_workers" {
-  count   = (local.effective_aws_worker_count + local.effective_aws_control_plane_count) > 0 && (local.effective_gcp_control_plane_count + local.effective_gcp_worker_count) > 0 && var.use_public_access_ip ? 1 : 0
+  count   = var.enable_gcp && var.enable_aws && (local.effective_aws_worker_count + local.effective_aws_control_plane_count) > 0 && (local.effective_gcp_control_plane_count + local.effective_gcp_worker_count) > 0 && var.use_public_access_ip ? 1 : 0
   name    = "${var.instance_name_prefix}-allow-aws-workers"
   network = var.network
 
@@ -187,6 +260,25 @@ resource "google_compute_firewall" "allow_aws_workers" {
   source_ranges = length(concat(module.aws_kubespray_workers.control_plane_public_ips, module.aws_kubespray_workers.worker_public_ips)) > 0 ? [
     for ip in concat(module.aws_kubespray_workers.control_plane_public_ips, module.aws_kubespray_workers.worker_public_ips) : "${ip}/32" if ip != null && ip != ""
   ] : [var.aws_vpc_cidr]
+
+  target_tags = ["${var.cluster_name}-cluster"]
+}
+
+# ---------------------------------------------------------------------------
+# Cross-Cloud Firewall: Allow traffic from DigitalOcean nodes to GCP cluster
+# ---------------------------------------------------------------------------
+resource "google_compute_firewall" "allow_digitalocean_nodes" {
+  count   = var.enable_gcp && var.enable_digitalocean && (local.effective_do_worker_count + local.effective_do_control_plane_count) > 0 && (local.effective_gcp_control_plane_count + local.effective_gcp_worker_count) > 0 && var.use_public_access_ip ? 1 : 0
+  name    = "${var.instance_name_prefix}-allow-do-nodes"
+  network = var.network
+
+  allow {
+    protocol = "all"
+  }
+
+  source_ranges = length(module.digitalocean_kubespray_cluster.cluster_public_ips) > 0 ? [
+    for ip in module.digitalocean_kubespray_cluster.cluster_public_ips : "${ip}/32" if ip != null && ip != ""
+  ] : ["10.0.0.0/8"]
 
   target_tags = ["${var.cluster_name}-cluster"]
 }

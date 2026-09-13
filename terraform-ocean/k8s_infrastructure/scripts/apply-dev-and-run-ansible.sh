@@ -11,7 +11,7 @@ PLAYBOOK="${1:-cluster.yml}"
 INVENTORY="${ANSIBLE_INVENTORY:-inventory/sample/inventory.ini}"
 
 echo "================================================================="
-echo " Step 1: Deploy Cloud Infrastructure with Terraform (GCP + AWS)"
+echo " Step 1: Deploy Cloud Infrastructure with Terraform (GCP + AWS + DigitalOcean)"
 echo "================================================================="
 echo "Terraform root: $INFRA_DIR"
 echo

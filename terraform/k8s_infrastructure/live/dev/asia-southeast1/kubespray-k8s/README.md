@@ -1,29 +1,34 @@
-# Dev Kubespray GCP Infrastructure
+# Dev Kubespray Multi-Cloud Infrastructure (GCP + AWS + DigitalOcean)
 
-This Terraform root creates GCP VMs for a Kubespray Kubernetes cluster and writes the real VM IPs into the Kubespray inventory.
+This Terraform root creates VMs across GCP, AWS, and DigitalOcean for a multi-cloud Kubespray Kubernetes cluster and writes the real node IPs into the Kubespray and WireGuard inventories.
 
 Terraform creates:
 
-- Control plane VMs, for example `master01`, `master02`, `master03`.
-- Worker VMs, for example `worker01`, `worker02`, `worker03`.
-- Static external IPs for SSH.
+- Control plane VMs across GCP, AWS, and DigitalOcean (e.g. `master01`, `master02`, `master03`).
+- Worker VMs across GCP, AWS, and DigitalOcean (e.g. `worker01`, `worker02`, `worker03`, `worker04`, `worker05`).
+- Static external IPs (GCP static addresses, AWS Elastic IPs, DigitalOcean Reserved IPs).
 - A local SSH key pair when `ansible_ssh_private_key_file` and `ssh_public_key_path` do not already exist.
-- Internal IPs used by Kubespray as `ip=...`.
-- Firewall rules for SSH, internal cluster traffic, and Kubernetes API access.
-- The generated Kubespray inventory file.
+- Internal/WireGuard IPs used by Kubespray as `ip=10.0.0.x`.
+- Cross-cloud firewall and security group rules for SSH, WireGuard (UDP 51820), and Kubernetes API.
+- The generated Kubespray inventory file and WireGuard mesh configuration.
 
-Terraform does not run Kubespray. After `terraform apply`, run Kubespray with Ansible.
+Terraform does not run Kubespray. After `terraform apply`, deploy WireGuard and run Kubespray with Ansible.
 
 ## Configure Node Counts
 
 Use `terraform.tfvars`:
 
 ```hcl
-control_plane_count = 3
-worker_count        = 3
+gcp_control_plane_count          = 2
+aws_control_plane_count          = 1
+digitalocean_control_plane_count = 0
+
+gcp_worker_count                 = 0
+aws_worker_count                 = 4
+digitalocean_worker_count        = 0
 ```
 
-For stacked etcd, `1` or `3` control plane nodes is usually better than `2`.
+For stacked etcd, `1` or `3` control plane nodes is usually recommended for HA quorum.
 
 ## Generated Inventory
 

@@ -1,0 +1,75 @@
+#!/bin/bash
+set -euxo pipefail
+
+# Configure primary SSH user
+USER_NAME="${ssh_user}"
+if [ -n "$USER_NAME" ] && [ "$USER_NAME" != "root" ]; then
+  if ! id "$USER_NAME" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash "$USER_NAME"
+  fi
+  usermod -aG sudo "$USER_NAME" || usermod -aG wheel "$USER_NAME" || true
+  echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/90-$USER_NAME"
+  chmod 0440 "/etc/sudoers.d/90-$USER_NAME"
+
+  USER_HOME=$(getent passwd "$USER_NAME" | cut -d: -f6)
+  [ -z "$USER_HOME" ] && USER_HOME="/home/$USER_NAME"
+  mkdir -p "$USER_HOME/.ssh"
+  cat << 'SSH_KEY_EOF' >> "$USER_HOME/.ssh/authorized_keys"
+${ssh_public_key}
+SSH_KEY_EOF
+  sort -u "$USER_HOME/.ssh/authorized_keys" -o "$USER_HOME/.ssh/authorized_keys"
+  chown -R "$USER_NAME:$USER_NAME" "$USER_HOME/.ssh"
+  chmod 700 "$USER_HOME/.ssh"
+  chmod 600 "$USER_HOME/.ssh/authorized_keys"
+fi
+
+# Ensure root also retains SSH key access for emergency maintenance
+mkdir -p /root/.ssh
+cat << 'SSH_KEY_EOF' >> /root/.ssh/authorized_keys
+${ssh_public_key}
+SSH_KEY_EOF
+sort -u /root/.ssh/authorized_keys -o /root/.ssh/authorized_keys
+chmod 700 /root/.ssh
+chmod 600 /root/.ssh/authorized_keys
+
+# Ensure default ubuntu user also retains SSH key access if present
+if id "ubuntu" >/dev/null 2>&1; then
+  mkdir -p /home/ubuntu/.ssh
+  cat << 'SSH_KEY_EOF' >> /home/ubuntu/.ssh/authorized_keys
+${ssh_public_key}
+SSH_KEY_EOF
+  sort -u /home/ubuntu/.ssh/authorized_keys -o /home/ubuntu/.ssh/authorized_keys
+  chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+  chmod 700 /home/ubuntu/.ssh
+  chmod 600 /home/ubuntu/.ssh/authorized_keys
+fi
+
+# Disable swap for Kubernetes
+swapoff -a || true
+sed -ri '/\sswap\s/s/^#?/#/' /etc/fstab || true
+
+# Prepare kernel modules & sysctl settings for Kubernetes / Kubespray
+cat << 'EOF' > /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+modprobe overlay || true
+modprobe br_netfilter || true
+
+cat << 'EOF' > /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+sysctl --system || true
+
+# [SERVER-SIDE KEEP-ALIVE]: Configured on the Droplet's sshd daemon so the VM
+# sends heartbeats back to the client every 30s to prevent firewall/NAT timeouts.
+mkdir -p /etc/ssh/sshd_config.d
+cat << 'EOF' > /etc/ssh/sshd_config.d/99-keepalive.conf
+ClientAliveInterval 30
+ClientAliveCountMax 10
+EOF
+systemctl reload ssh || systemctl reload sshd || true

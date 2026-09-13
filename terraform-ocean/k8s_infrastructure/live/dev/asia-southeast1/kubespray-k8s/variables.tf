@@ -17,6 +17,27 @@ variable "local_state_path" {
 }
 
 # ---------------------------------------------------------------------------
+# Cloud Provider Activation Toggles
+# ---------------------------------------------------------------------------
+variable "enable_gcp" {
+  description = "Enable Google Cloud Platform (GCP) resources and cluster nodes."
+  type        = bool
+  default     = true
+}
+
+variable "enable_aws" {
+  description = "Enable Amazon Web Services (AWS) resources and cluster nodes."
+  type        = bool
+  default     = true
+}
+
+variable "enable_digitalocean" {
+  description = "Enable DigitalOcean resources and cluster nodes."
+  type        = bool
+  default     = true
+}
+
+# ---------------------------------------------------------------------------
 # GCP Settings
 # ---------------------------------------------------------------------------
 variable "project_id" {
@@ -528,3 +549,114 @@ variable "exclude_stopped_nodes_from_inventory" {
   type        = bool
   default     = true
 }
+
+# ---------------------------------------------------------------------------
+# DigitalOcean Provider & Node Configuration
+# ---------------------------------------------------------------------------
+variable "do_token" {
+  description = "DigitalOcean API Token. Leave empty to automatically use DIGITALOCEAN_TOKEN or DIGITALOCEAN_ACCESS_TOKEN env var."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "digitalocean_control_plane_count" {
+  description = "Number of control plane nodes to deploy on DigitalOcean."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.digitalocean_control_plane_count >= 0 && floor(var.digitalocean_control_plane_count) == var.digitalocean_control_plane_count
+    error_message = "digitalocean_control_plane_count must be a whole number that is 0 or greater."
+  }
+}
+
+variable "digitalocean_worker_count" {
+  description = "Number of worker nodes to deploy on DigitalOcean."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.digitalocean_worker_count >= 0 && floor(var.digitalocean_worker_count) == var.digitalocean_worker_count
+    error_message = "digitalocean_worker_count must be a whole number that is 0 or greater."
+  }
+}
+
+variable "digitalocean_region" {
+  description = "Primary DigitalOcean region slug (e.g. 'sgp1', 'nyc1', 'ams3', 'fra1')."
+  type        = string
+  default     = "sgp1"
+}
+
+variable "digitalocean_regions" {
+  description = "List of DigitalOcean regions to spread droplets across. If empty, uses digitalocean_region."
+  type        = list(string)
+  default     = []
+}
+
+variable "digitalocean_auto_discover_up_regions" {
+  description = "When true, queries DigitalOcean API for available regions."
+  type        = bool
+  default     = true
+}
+
+variable "digitalocean_blocked_regions" {
+  description = "DigitalOcean regions to skip/block if a region suffers from capacity issues."
+  type        = list(string)
+  default     = []
+}
+
+variable "digitalocean_control_plane_sizes" {
+  description = "Droplet sizes for DigitalOcean control plane nodes."
+  type        = list(string)
+  default     = ["s-2vcpu-4gb", "s-4vcpu-8gb"]
+}
+
+variable "digitalocean_worker_sizes" {
+  description = "Droplet sizes for DigitalOcean worker nodes."
+  type        = list(string)
+  default     = ["s-2vcpu-4gb"]
+}
+
+variable "digitalocean_fallback_sizes" {
+  description = "Fallback droplet sizes to try if primary sizes are blocked or out of stock."
+  type        = list(string)
+  default     = ["s-4vcpu-8gb", "s-2vcpu-2gb", "c-2", "g-2vcpu-8gb"]
+}
+
+variable "digitalocean_blocked_sizes" {
+  description = "Droplet sizes to skip/block if stockouts occur."
+  type        = list(string)
+  default     = []
+}
+
+variable "digitalocean_random_resource_type" {
+  description = "Allowed resource families when selecting fallback droplet sizes."
+  type        = list(string)
+  default     = ["Standard", "High CPU", "High Memory"]
+}
+
+variable "digitalocean_image" {
+  description = "DigitalOcean Droplet base OS image slug."
+  type        = string
+  default     = "ubuntu-24-04-x64"
+}
+
+variable "digitalocean_vpc_uuid" {
+  description = "Optional DigitalOcean VPC UUID. If null, uses the region's default VPC."
+  type        = string
+  default     = null
+}
+
+variable "digitalocean_allocate_reserved_ips" {
+  description = "Whether to allocate static Reserved IPs for DigitalOcean droplets."
+  type        = bool
+  default     = true
+}
+
+variable "digitalocean_worker_data_disk_size_gb" {
+  description = "Optional secondary block storage volume size in GB for DigitalOcean worker nodes."
+  type        = number
+  default     = 0
+}
+

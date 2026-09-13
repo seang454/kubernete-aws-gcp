@@ -1,3 +1,9 @@
+variable "enabled" {
+  description = "Whether this AWS module is enabled. When false, no EC2 instances, security groups, or data sources are created."
+  type        = bool
+  default     = true
+}
+
 variable "cluster_name" {
   description = "Short cluster name used in labels and tags."
   type        = string

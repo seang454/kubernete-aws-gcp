@@ -9,7 +9,7 @@ locals {
 }
 
 data "google_compute_zones" "available" {
-  for_each = var.auto_discover_up_zones ? toset(local.discovery_regions) : toset([])
+  for_each = var.enabled && (var.control_plane_count + var.worker_count + var.nfs_count) > 0 && var.auto_discover_up_zones ? toset(local.discovery_regions) : toset([])
 
   region = each.value
   status = "UP"
@@ -58,6 +58,7 @@ locals {
       name          = format("%s%02d", var.control_plane_name_prefix, index + 1)
       instance_name = format("%s-%s%02d", var.instance_name_prefix, var.control_plane_name_prefix, index + 1)
       role          = "control_plane"
+      cloud         = "gcp"
       node_index    = index
       global_index  = index
       zone          = local.effective_zones[index % length(local.effective_zones)]
@@ -75,6 +76,7 @@ locals {
       name          = format("%s%02d", var.worker_name_prefix, index + 1)
       instance_name = format("%s-%s%02d", var.instance_name_prefix, var.worker_name_prefix, index + 1)
       role          = "worker"
+      cloud         = "gcp"
       node_index    = index
       global_index  = var.control_plane_count + index
       zone          = local.effective_zones[(var.control_plane_count + index) % length(local.effective_zones)]
@@ -94,6 +96,7 @@ locals {
       name          = format("%s-%d", var.nfs_name_prefix, index + 1)
       instance_name = format("%s-%s-%d", var.instance_name_prefix, var.nfs_name_prefix, index + 1)
       role          = "nfs"
+      cloud         = "gcp"
       node_index    = index
       global_index  = var.control_plane_count + var.worker_count + index
       zone          = local.nfs_effective_zones[index % length(local.nfs_effective_zones)]
@@ -116,44 +119,46 @@ locals {
   # -------------------------------------------------------------------------
   # Filtered node sets — exclude specific nodes by GCP instance name
   # -------------------------------------------------------------------------
-  active_nodes = [
+  active_nodes = var.enabled ? [
     for node in local.nodes :
     node
     if !contains(var.exclude_nodes, node.instance_name)
-  ]
+  ] : []
 
-  active_nodes_by_name = {
+  active_nodes_by_name = var.enabled ? {
     for name, node in local.nodes_by_name :
     name => node
     if !contains(var.exclude_nodes, node.instance_name)
-  }
+  } : {}
 
-  active_nfs_nodes_by_name = {
+  active_nfs_nodes_by_name = var.enabled ? {
     for name, node in local.nfs_nodes_by_name :
     name => node
     if !contains(var.exclude_nodes, node.instance_name)
-  }
+  } : {}
 
-  active_control_plane_nodes = [
+  active_control_plane_nodes = var.enabled ? [
     for node in local.control_plane_nodes :
     node
     if !contains(var.exclude_nodes, node.instance_name)
-  ]
+  ] : []
 
-  active_worker_nodes = [
+  active_worker_nodes = var.enabled ? [
     for node in local.worker_nodes :
     node
     if !contains(var.exclude_nodes, node.instance_name)
-  ]
+  ] : []
 
-  active_nfs_nodes = [
+  active_nfs_nodes = var.enabled ? [
     for node in local.nfs_nodes :
     node
     if !contains(var.exclude_nodes, node.instance_name)
-  ]
+  ] : []
 }
 
 resource "terraform_data" "preflight" {
+  count = var.enabled && (var.control_plane_count + var.worker_count + var.nfs_count) > 0 ? 1 : 0
+
   input = {
     configured_zones      = local.configured_zones
     usable_zones          = local.usable_zones

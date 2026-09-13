@@ -1,43 +1,47 @@
-# Kubernetes Multi-Cloud Infrastructure (AWS + GCP)
+# Kubernetes Multi-Cloud Infrastructure (AWS + GCP + DigitalOcean)
 
-This Terraform project provisions a hybrid-cloud Kubernetes infrastructure for Kubespray:
-- **3 Control Plane Nodes on GCP** (Compute Engine VMs with HA stacked etcd)
-- **4 Worker Nodes on AWS** (EC2 instances with Elastic IPs and multi-AZ distribution)
+This Terraform project provisions a flexible hybrid/multi-cloud Kubernetes infrastructure for Kubespray:
+- **Control Plane Nodes on GCP** (Compute Engine VMs with HA stacked etcd)
+- **Worker Nodes on AWS** (EC2 instances with Elastic IPs and multi-AZ distribution)
+- **Control Plane / Worker Nodes on DigitalOcean** (Droplets with static Reserved IPs and stockout protection)
 
-Terraform automatically configures both cloud providers and generates ready-to-use Kubespray and Ansible inventories containing the real VM IP addresses.
+Terraform automatically configures all cloud providers, provisions cross-cloud firewall rules, and generates ready-to-use Kubespray, WireGuard, and Ansible inventories containing the real VM IP addresses.
 
 ## Architecture Flow
 
 ```text
 terraform.tfvars
-  -> Control Plane: 3 nodes on GCP (e2-medium)
-  -> Worker Nodes:  4 nodes on AWS (t3.medium)
+  -> Control Plane: Any split across GCP, AWS, and DigitalOcean (e.g. 2 GCP + 1 AWS + 0 DO, or 1/1/1 HA Quorum)
+  -> Worker Nodes:  Any split across GCP, AWS, and DigitalOcean (e.g. 4 AWS + 2 DO)
   -> SSH user/key, regions, and network CIDRs
 
 Terraform
-  -> creates 3 GCP control plane VMs + static external IPs
-  -> creates 4 AWS worker EC2 instances + Elastic IPs + security group
-  -> writes Kubespray inventory.ini (with cross-cloud access_ip configuration)
+  -> creates GCP control plane VMs + static external IPs
+  -> creates AWS worker EC2 instances + Elastic IPs + security group
+  -> creates DigitalOcean Droplets + static Reserved IPs + cloud firewall
+  -> writes Kubespray inventory.ini (with WireGuard 10.0.0.x access_ip configuration)
+  -> writes WireGuard hosts.ini (for full-mesh encryption)
   -> writes Ansible inventory.ini
 
 Kubespray
   -> reads inventory.ini
-  -> installs Kubernetes HA cluster across GCP and AWS with Ansible
+  -> installs Kubernetes HA cluster across GCP, AWS, and DigitalOcean with Ansible
 ```
 
 ## Directory Structure
 
 ```text
-terraform/k8s_infrastructure/
+k8s_infrastructure/
 |-- live/
 |   `-- dev/
 |       `-- asia-southeast1/
-|           `-- kubespray-k8s/           # Main root module
+|           `-- kubespray-k8s/           # Main root module (tri-cloud orchestration)
 |-- modules/
-|   |-- gcp-kubespray-cluster/           # GCP control plane module
-|   `-- aws-kubespray-workers/           # AWS worker nodes module
+|   |-- gcp-kubespray-cluster/           # GCP control plane & worker module
+|   |-- aws-kubespray-workers/           # AWS worker & control plane module
+|   `-- digitalocean-kubespray-cluster/  # DigitalOcean control plane & worker module
 |-- scripts/                             # Operational automation scripts
-`-- docs/                                # Architecture & runbooks
+`-- docs/                                # Architecture, runbooks & disaster recovery
 ```
 
 ## Generated Inventories
@@ -60,6 +64,10 @@ terraform/k8s_infrastructure/
   export AWS_REGION="ap-southeast-1"
   ```
   (Alternatively, configure `~/.aws/credentials` or set `aws_profile` in `terraform.tfvars`).
+- **DigitalOcean**: Export token in shell or set `do_token` in `terraform.tfvars`:
+  ```bash
+  export DIGITALOCEAN_TOKEN="dop_v1_your_token_here"
+  ```
 
 ### 2. Deploy Infrastructure
 

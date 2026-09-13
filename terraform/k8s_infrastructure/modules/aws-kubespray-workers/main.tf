@@ -13,7 +13,7 @@
 
 # 1. VPC & Subnet resolution
 data "aws_vpc" "default" {
-  count   = var.vpc_id == null || var.vpc_id == "" ? 1 : 0
+  count   = var.enabled && (var.worker_count + var.control_plane_count) > 0 && (var.vpc_id == null || var.vpc_id == "") ? 1 : 0
   default = true
 }
 
@@ -22,7 +22,7 @@ locals {
 }
 
 data "aws_subnets" "available" {
-  count = length(var.subnet_ids) == 0 ? 1 : 0
+  count = var.enabled && (var.worker_count + var.control_plane_count) > 0 && length(var.subnet_ids) == 0 ? 1 : 0
   filter {
     name   = "vpc-id"
     values = [local.resolved_vpc_id]
@@ -30,19 +30,20 @@ data "aws_subnets" "available" {
 }
 
 data "aws_subnet" "selected" {
-  for_each = toset(length(var.subnet_ids) > 0 ? var.subnet_ids : try(data.aws_subnets.available[0].ids, []))
+  for_each = toset(var.enabled && (var.worker_count + var.control_plane_count) > 0 ? (length(var.subnet_ids) > 0 ? var.subnet_ids : try(data.aws_subnets.available[0].ids, [])) : [])
   id       = each.value
 }
 
 # 2. Dynamic AZ Discovery & Zone Health (Concept 1)
 data "aws_availability_zones" "available" {
+  count = var.enabled && (var.worker_count + var.control_plane_count) > 0 && var.auto_discover_up_zones ? 1 : 0
   state = "available"
 }
 
 locals {
   configured_zones = length(var.zones) > 0 ? var.zones : []
 
-  discovered_up_zones = var.auto_discover_up_zones ? data.aws_availability_zones.available.names : local.configured_zones
+  discovered_up_zones = var.enabled && (var.worker_count + var.control_plane_count) > 0 && var.auto_discover_up_zones ? try(data.aws_availability_zones.available[0].names, []) : local.configured_zones
 
   # Preferred configured zones that are confirmed available/UP
   preferred_up_zones = length(local.configured_zones) > 0 ? [
@@ -97,7 +98,7 @@ locals {
 
 # 4. AMI Resolution (Official Canonical Ubuntu 24.04 LTS)
 data "aws_ami" "ubuntu" {
-  count       = var.ami_id == null || var.ami_id == "" ? 1 : 0
+  count       = var.enabled && (var.worker_count + var.control_plane_count) > 0 && (var.ami_id == null || var.ami_id == "") ? 1 : 0
   most_recent = true
   owners      = ["099720109477"] # Canonical
 
@@ -121,7 +122,7 @@ locals {
 
 # 5. SSH Key Pair
 resource "aws_key_pair" "this" {
-  count           = (var.worker_count + var.control_plane_count) > 0 ? 1 : 0
+  count           = var.enabled && (var.worker_count + var.control_plane_count) > 0 ? 1 : 0
   key_name_prefix = "${var.instance_name_prefix}-key-"
   public_key      = trimspace(var.ssh_public_key)
 
@@ -255,7 +256,7 @@ locals {
         source_ranges = rule.source_ranges
       }
     ]
-    if (
+    if(
       coalesce(rule.target, "all") == "all" ||
       (coalesce(rule.target, "all") == "worker" && var.worker_count > 0) ||
       (coalesce(rule.target, "all") == "control_plane" && var.control_plane_count > 0)
@@ -291,54 +292,56 @@ resource "aws_security_group_rule" "egress_all" {
 
 # 7. Node Planning & Selective Deletion (Concept 7)
 locals {
-  control_plane_nodes = [
+  control_plane_nodes = var.enabled ? [
     for index in range(var.control_plane_count) : {
       name          = format("%s%02d", var.control_plane_name_prefix, index + 1 + var.control_plane_index_offset)
       instance_name = format("%s-%s%02d", var.instance_name_prefix, var.control_plane_name_prefix, index + 1 + var.control_plane_index_offset)
       role          = "control_plane"
+      cloud         = "aws"
       node_index    = index
       global_index  = index + var.control_plane_index_offset
-      zone          = local.effective_zones[index % length(local.effective_zones)]
-      subnet_id     = local.az_to_subnets[local.effective_zones[index % length(local.effective_zones)]][0]
+      zone          = try(local.effective_zones[index % length(local.effective_zones)], "")
+      subnet_id     = try(local.az_to_subnets[local.effective_zones[index % length(local.effective_zones)]][0], "")
       machine_type = contains(var.blocked_machine_types, var.control_plane_machine_types[min(index, length(var.control_plane_machine_types) - 1)]) ? (
         length(local.usable_fallback_machines) > 0 ? local.usable_fallback_machines[(index + var.control_plane_index_offset) % length(local.usable_fallback_machines)] : local.default_fallback_machine
       ) : var.control_plane_machine_types[min(index, length(var.control_plane_machine_types) - 1)]
       root_disk_size_gb  = var.control_plane_boot_disk_size_gb
       has_secondary_disk = false
     }
-  ]
+  ] : []
 
-  worker_nodes = [
+  worker_nodes = var.enabled ? [
     for index in range(var.worker_count) : {
       name          = format("%s%02d", var.worker_name_prefix, index + 1 + var.index_offset)
       instance_name = format("%s-%s%02d", var.instance_name_prefix, var.worker_name_prefix, index + 1 + var.index_offset)
       role          = "worker"
+      cloud         = "aws"
       node_index    = index
       global_index  = index + var.index_offset
-      zone          = local.effective_zones[index % length(local.effective_zones)]
-      subnet_id     = local.az_to_subnets[local.effective_zones[index % length(local.effective_zones)]][0]
+      zone          = try(local.effective_zones[index % length(local.effective_zones)], "")
+      subnet_id     = try(local.az_to_subnets[local.effective_zones[index % length(local.effective_zones)]][0], "")
       machine_type = contains(var.blocked_machine_types, var.worker_machine_types[min(index, length(var.worker_machine_types) - 1)]) ? (
         length(local.usable_fallback_machines) > 0 ? local.usable_fallback_machines[(index + var.index_offset) % length(local.usable_fallback_machines)] : local.default_fallback_machine
       ) : var.worker_machine_types[min(index, length(var.worker_machine_types) - 1)]
       root_disk_size_gb  = var.root_volume_size_gb
       has_secondary_disk = var.worker_data_disk_size_gb > 0
     }
-  ]
+  ] : []
 
   all_nodes         = concat(local.control_plane_nodes, local.worker_nodes)
   all_nodes_by_name = { for node in local.all_nodes : node.name => node }
 
-  active_control_plane_nodes = [
+  active_control_plane_nodes = var.enabled ? [
     for node in local.control_plane_nodes :
     node
     if !contains(var.exclude_nodes, node.instance_name)
-  ]
+  ] : []
 
-  active_worker_nodes = [
+  active_worker_nodes = var.enabled ? [
     for node in local.worker_nodes :
     node
     if !contains(var.exclude_nodes, node.instance_name)
-  ]
+  ] : []
 
   active_nodes         = concat(local.active_control_plane_nodes, local.active_worker_nodes)
   active_nodes_by_name = { for node in local.active_nodes : node.name => node }
@@ -346,6 +349,7 @@ locals {
 
 # 8. Preflight Safety Preconditions (Concept 3)
 resource "terraform_data" "preflight" {
+  count = var.enabled && (var.worker_count + var.control_plane_count) > 0 ? 1 : 0
   input = {
     total_node_count         = var.worker_count + var.control_plane_count
     configured_zones         = local.configured_zones

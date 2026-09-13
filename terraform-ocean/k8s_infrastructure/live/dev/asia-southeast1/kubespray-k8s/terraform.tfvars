@@ -4,6 +4,16 @@ gcs_bucket_name  = "project-469c6b81-55a1-4508-830-tfstate-bbdcad0e"
 local_state_path = "../../../../state/dev/asia-southeast1/kubespray-k8s.tfstate"
 
 # ---------------------------------------------------------------------------
+# Cloud Provider Activation Toggles
+# ---------------------------------------------------------------------------
+# Toggle which cloud providers are active. When set to false, Terraform will
+# completely bypass that provider, creating 0 nodes, skipping data queries,
+# and avoiding any cloud API calls or credential errors for that cloud.
+enable_gcp          = true
+enable_aws          = true
+enable_digitalocean = false
+
+# ---------------------------------------------------------------------------
 # GCP Configuration
 # ---------------------------------------------------------------------------
 project_id = "project-469c6b81-55a1-4508-830"
@@ -67,8 +77,8 @@ subnetwork = null
 # ---------------------------------------------------------------------------
 # AWS Configuration (Full Parity with GCP Error Handling)
 # ---------------------------------------------------------------------------
-aws_region                     = "ap-southeast-1"
-aws_profile                    = ""
+aws_region  = "ap-southeast-1"
+aws_profile = ""
 
 # Recommended: empty ("") means AWS automatically discovers credentials from
 # ~/.aws/credentials or environment variables. You can set a custom path:
@@ -85,7 +95,7 @@ aws_control_plane_machine_types = ["t3.small"]
 aws_worker_machine_types        = ["t3.small"]
 aws_fallback_machine_types      = ["t3.small", "t3.micro"]
 aws_blocked_machine_types       = []
-aws_random_resource_type   = ["Standard", "High CPU", "High Memory"]
+aws_random_resource_type        = ["Standard", "High CPU", "High Memory"]
 
 # Storage
 aws_worker_root_disk_size_gb = 30
@@ -99,19 +109,45 @@ aws_vpc_cidr             = "172.31.0.0/16"
 aws_source_dest_check    = false
 
 # ---------------------------------------------------------------------------
-# Hybrid Cluster Sizing: 3 Control-Plane on GCP, 4 Workers on AWS
+# DigitalOcean Configuration (Full Parity with GCP & AWS)
 # ---------------------------------------------------------------------------
-# Dynamic Multi-Cloud Node Topology:
-# Customize any combination of control plane and worker nodes across GCP and AWS:
-# - All on GCP:      gcp_control_plane_count = 3, gcp_worker_count = 4, aws_control_plane_count = 0, aws_worker_count = 0
-# - All on AWS:      gcp_control_plane_count = 0, gcp_worker_count = 0, aws_control_plane_count = 3, aws_worker_count = 4
-# - Split Masters:   gcp_control_plane_count = 2, aws_control_plane_count = 1, aws_worker_count = 4 (HA quorum!)
-# - Split Both:      gcp_control_plane_count = 2, aws_control_plane_count = 1, gcp_worker_count = 2, aws_worker_count = 2
+# Recommended: leave do_token empty ("") and export DIGITALOCEAN_TOKEN in shell.
+# Or set explicitly: do_token = "dop_v1_xxxx"
+do_token                              = ""
+digitalocean_region                   = "sgp1"
+digitalocean_regions                  = []
+digitalocean_auto_discover_up_regions = true
+digitalocean_blocked_regions          = []
+
+# Machine types (droplet sizes) for DigitalOcean nodes
+digitalocean_control_plane_sizes  = ["s-2vcpu-4gb", "s-4vcpu-8gb"]
+digitalocean_worker_sizes         = ["s-2vcpu-4gb"]
+digitalocean_fallback_sizes       = ["s-4vcpu-8gb", "s-2vcpu-2gb", "c-2", "g-2vcpu-8gb"]
+digitalocean_blocked_sizes        = []
+digitalocean_random_resource_type = ["Standard", "High CPU", "High Memory"]
+
+# Image & Networking
+digitalocean_image                    = "ubuntu-24-04-x64"
+digitalocean_vpc_uuid                 = null
+digitalocean_allocate_reserved_ips    = true
+digitalocean_worker_data_disk_size_gb = 0
+
 # ---------------------------------------------------------------------------
-gcp_control_plane_count = 2
-aws_control_plane_count = 1
-gcp_worker_count        = 0
-aws_worker_count        = 4
+# Dynamic Multi-Cloud Node Topology (GCP, AWS, and DigitalOcean)
+# ---------------------------------------------------------------------------
+# Customize any combination of control plane (master) and worker nodes:
+# - All on DigitalOcean: gcp_control_plane_count = 0, aws_control_plane_count = 0, digitalocean_control_plane_count = 3, digitalocean_worker_count = 3
+# - Masters on DO, Workers on AWS: digitalocean_control_plane_count = 3, aws_worker_count = 4
+# - Tri-Cloud HA Quorum: gcp_control_plane_count = 1, aws_control_plane_count = 1, digitalocean_control_plane_count = 1
+# - Split Workers:       gcp_worker_count = 2, aws_worker_count = 2, digitalocean_worker_count = 2
+# ---------------------------------------------------------------------------
+gcp_control_plane_count          = 2
+aws_control_plane_count          = 1
+digitalocean_control_plane_count = 0 # Set to 1, 2, or 3 for DigitalOcean master nodes!
+
+gcp_worker_count          = 0
+aws_worker_count          = 4
+digitalocean_worker_count = 0 # Set to 2, 4 for DigitalOcean worker nodes!
 
 cluster_name         = "kubespray"
 instance_name_prefix = "k8s"

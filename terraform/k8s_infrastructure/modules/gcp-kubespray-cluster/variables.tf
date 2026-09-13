@@ -1,3 +1,9 @@
+variable "enabled" {
+  description = "Whether this GCP module is enabled. When false, no GCP instances, firewalls, or data sources are created."
+  type        = bool
+  default     = true
+}
+
 variable "cluster_name" {
   description = "Short cluster name used in labels and firewall names."
   type        = string

@@ -74,9 +74,24 @@ output "key_pair_name" {
   value       = try(aws_key_pair.this[0].key_name, null)
 }
 
+output "all_nodes" {
+  description = "All active AWS Kubernetes node details keyed by Kubespray inventory hostname."
+  value = {
+    for node in local.active_nodes : node.name => {
+      instance_name = node.instance_name
+      role          = node.role
+      zone          = node.zone
+      machine_type  = node.machine_type
+      public_ip     = var.allocate_elastic_ips ? aws_eip.this[node.name].public_ip : aws_instance.this[node.name].public_ip
+      private_ip    = aws_instance.this[node.name].private_ip
+      cloud         = "aws"
+    }
+  }
+}
+
 output "machine_plan" {
-  description = "All planned AWS worker nodes."
-  value       = local.worker_nodes
+  description = "All planned AWS nodes."
+  value       = local.all_nodes
 }
 
 output "usable_zones" {
@@ -101,10 +116,10 @@ output "usable_fallback_machines" {
 
 output "excluded_nodes" {
   description = "Node names currently excluded from AWS."
-  value       = [for name in var.exclude_nodes : name if contains([for n in local.worker_nodes : n.instance_name], name)]
+  value       = [for name in var.exclude_nodes : name if contains([for n in local.all_nodes : n.instance_name], name)]
 }
 
 output "stopped_nodes" {
   description = "Node names currently stopped (powered off) in AWS without deletion."
-  value       = [for name in var.stop_nodes : name if contains([for n in local.worker_nodes : n.instance_name], name)]
+  value       = [for name in var.stop_nodes : name if contains([for n in local.all_nodes : n.instance_name], name)]
 }

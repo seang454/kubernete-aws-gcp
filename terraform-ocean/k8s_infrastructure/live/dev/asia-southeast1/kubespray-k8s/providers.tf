@@ -21,6 +21,11 @@ terraform {
       source  = "hashicorp/tls"
       version = "~> 4.0"
     }
+
+    digitalocean = {
+      source  = "digitalocean/digitalocean"
+      version = "~> 2.34"
+    }
   }
 }
 
@@ -57,3 +62,8 @@ provider "aws" {
     }
   }
 }
+
+provider "digitalocean" {
+  token = trimspace(var.do_token) != "" ? var.do_token : null
+}
+

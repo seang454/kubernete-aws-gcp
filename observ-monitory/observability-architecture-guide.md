@@ -28,17 +28,19 @@ flowchart TD
         alloy["🟣 Grafana Alloy / OpenTelemetry Collector<br><i>(All-in-One Universal Shipper for Metrics, Logs, Traces & Profiles)</i>"]
     end
 
-    subgraph Storage["3. STORAGE & ANALYSIS ENGINES (The 4 Pillars)"]
+    subgraph Storage["3. STORAGE & ANALYSIS ENGINES (The 4 Pillars + Full-Text Search)"]
         prom["🔥 Prometheus / Mimir / Thanos<br><i>(Metrics Engine: PromQL)</i>"]
         loki["🟠🟡 Grafana Loki<br><i>(Log Engine: LogQL)</i>"]
+        opensearch["🔍 OpenSearch<br><i>(Full-Text Log Analytics & SIEM)</i>"]
         tempo["🟠 Grafana Tempo / Jaeger<br><i>(Tracing Engine: TraceQL)</i>"]
         pyro["🟠 Grafana Pyroscope<br><i>(Profiling Engine: Flame Graphs)</i>"]
-        s3[("Cloud Object Storage<br><i>AWS S3 / GCS / MinIO<br>(Cheap Long-Term Storage)</i>")]
+        s3[("Cloud Object Storage<br><i>AWS S3 / GCS / MinIO / Longhorn<br>(Cheap Long-Term Storage)</i>")]
     end
 
-    subgraph Actions["4. ALERTING & VISUALIZATION (Single Pane of Glass)"]
+    subgraph Actions["4. ALERTING & VISUALIZATION (Single Pane of Glass + Specialized SIEM)"]
         alertmgr["Alertmanager<br><i>(Alert deduplication & routing)</i>"]
         grafana["🟠 Grafana (Unified Web Dashboard)<br><i>(Single UI for Metrics, Logs, Traces & Profiles)</i>"]
+        osDash["🔍 OpenSearch Dashboards<br><i>(Specialized Log Discovery, SIEM & Anomaly Detection)</i>"]
         notifications["Team Alerts<br><i>(Slack, PagerDuty, Email)</i>"]
     end
 
@@ -52,12 +54,14 @@ flowchart TD
 
     %% Pipeline routing to Storage
     alloy -->|Pushes or exposes Metrics| prom
-    alloy -->|Pushes compressed Logs| loki
+    alloy -->|Pushes compressed Pod Logs| loki
+    alloy -->|Pushes Structured / Audit Logs| opensearch
     alloy -->|Pushes Traces via OTLP| tempo
     alloy -->|Pushes Profile Snapshots| pyro
 
     %% Long-term Object Storage offload
     loki -.->|Archives log chunks| s3
+    opensearch -.->|Stores index shards on PV / S3| s3
     tempo -.->|Archives trace blocks| s3
     pyro -.->|Archives profile blocks| s3
     prom -.->|Optional: Thanos/Mimir offload| s3
@@ -66,9 +70,11 @@ flowchart TD
     prom -->|Fires alert rules| alertmgr
     alertmgr -->|Sends notifications| notifications
 
-    %% Visualization Queries from Grafana
+    %% Visualization Queries from Grafana & Dashboards
     prom -->|PromQL Queries| grafana
     loki -->|LogQL Queries| grafana
+    opensearch -->|OpenSearch Datasource| grafana
+    opensearch -->|DQL / Lucene Queries| osDash
     tempo -->|TraceQL Queries| grafana
     pyro -->|Flame Graph Queries| grafana
 ```
@@ -513,15 +519,54 @@ flowchart TD
 
 ---
 
-### Pipeline B: Logs (Loki vs. Elasticsearch)
-* **Objective:** Answer *"Why did an application crash? What error trace was output?"*
+### Pipeline B: Logs (Loki vs. OpenSearch / Elasticsearch)
+* **Objective:** Answer *"Why did an application crash? What error trace was output? Who accessed the database?"*
 * **Workflow:**
   1. Containerized applications write log events to standard output (`stdout`) and standard error (`stderr`).
   2. The container runtime (e.g., `containerd`) writes these streams to host files under `/var/log/pods/`.
-  3. A log agent (**Promtail**, **Grafana Alloy**, or **Fluent Bit**) tails these log files, appends Kubernetes metadata (namespace, pod name, container name), and streams them out.
+  3. A log agent (**Grafana Alloy**, **Promtail**, or **Fluent Bit**) tails these log files, appends Kubernetes metadata (namespace, pod name, container name), and streams them out.
   4. **Storage Options:**
-     * **Grafana Loki (Cloud-Native / LGTM Stack):** Indexes only the metadata labels rather than full text. This keeps storage lightweight, fast, and cost-effective. Logs are queried via **LogQL** inside **Grafana**.
-     * **Elasticsearch (ELK / EFK Stack):** Full-text indexes every word in the log stream using Lucene. Provides deep search capabilities at the expense of higher CPU/RAM usage. Searched and analyzed via **Kibana**.
+     * **Grafana Loki (Cloud-Native / LGTM Stack):** Indexes only the metadata labels (`namespace`, `app`, `container`) rather than full text. Raw log text is compressed into chunks. This keeps storage ultra-lightweight (~200MB RAM), fast, and cost-effective. Logs are queried via **LogQL** inside **Grafana**.
+     * **OpenSearch (Modern Open-Source Analytics / Apache 2.0):** Full-text indexes every word and field in the log stream using Lucene. Provides sub-second free-text search, complex aggregations, security analytics (SIEM with Sigma rules), and anomaly detection. Managed and visualized via **OpenSearch Dashboards** (port `5601`) and directly inside **Grafana** via the OpenSearch datasource plugin.
+     * **Elasticsearch (ELK / EFK Stack):** The legacy upstream predecessor to OpenSearch.
+
+#### 💡 Architectural Decision: Should You Use Grafana Alloy as the Log Collector for OpenSearch?
+
+**Yes! Using Grafana Alloy as the single unified collector is the recommended modern architecture.**
+
+```mermaid
+flowchart LR
+    subgraph Nodes["Kubernetes Worker Nodes"]
+        podLogs["/var/log/pods/*<br><i>(Container stdout/stderr)</i>"]
+        alloy["🟣 Grafana Alloy (Single DaemonSet)<br><i>• Tails log files once<br>• Enriches K8s metadata<br>• Splits & filters streams</i>"]
+        podLogs --> alloy
+    end
+
+    subgraph Engines["Storage Engines"]
+        loki["🟠🟡 Grafana Loki<br><i>(High-volume raw pod logs)</i>"]
+        opensearch["🔍 OpenSearch<br><i>(Audit, security & structured logs)</i>"]
+    end
+
+    subgraph UIs["Visualization"]
+        grafana["🟠 Grafana<br><i>(Unified Pane of Glass)</i>"]
+        osDash["🔍 OpenSearch Dashboards<br><i>(Deep-Dive Discover & SIEM)</i>"]
+    end
+
+    alloy -->|Compressed chunks| loki
+    alloy -->|OTel / HTTP Bulk| opensearch
+
+    loki --> grafana
+    opensearch --> grafana
+    opensearch --> osDash
+```
+
+##### 🎯 4 Reasons Why Using Alloy for OpenSearch is Superior:
+1. **Zero Duplicate Overhead on Small Nodes:** Your cluster has worker nodes on `t3.small` (2GB RAM). If you run both **Promtail/Alloy** (for Loki) AND **Fluent Bit/Filebeat** (for OpenSearch), you run two separate agent DaemonSets on every node reading the exact same files. **Alloy tails the file once** and splits the stream, cutting disk I/O and memory usage in half.
+2. **Intelligent "Fan-Out" Routing:** Alloy allows you to route logs based on criteria:
+   - Send all standard application debug/info logs to **Loki** (low storage cost).
+   - Route error stack traces, security audit events, or specific namespaces to **OpenSearch** (instant full-text search).
+3. **OpenTelemetry-Native Integration:** OpenSearch natively supports OpenTelemetry data schemas. Alloy's native `otelcol` components export OTLP directly to OpenSearch.
+4. **Single Configuration Syntax:** Engineers maintain one declarative configuration file rather than learning multiple conflicting config syntaxes.
 
 ---
 
@@ -548,9 +593,20 @@ flowchart TD
 | **Alertmanager** | Alert Engine | Alert Routing & Silencing | `9093` | Deduplicates alerts, manages silence windows, notifies Slack/Teams/PagerDuty/Email. |
 | **Loki** | Log Storage | Lightweight Log Storage | `3100` | Application stdout/stderr logs indexed by Kubernetes labels. |
 | **Elasticsearch** | Search / Log DB | Full-Text Log Analytics | `9200` | Deep indexing, complex search aggregations, structured application log queries. |
+| **OpenSearch** | Log & Full-Text Search | Distributed search, log analytics, security event auditing | `9200` (REST), `9300` (Transport) | Full inverted index on Longhorn PV, Lucene / DQL / SQL queries. |
 | **Jaeger** | Trace Storage | Distributed Traces | `16686` (UI), `4317` (OTLP) | Microservice call trees, request latency waterfalls, service dependency graphs. |
-| **Grafana** | Unified Dashboard | Visualization UI | `3000` | Single pane of glass dashboard combining Prometheus, Loki, and Jaeger. |
+| **Grafana** | Unified Dashboard | Visualization UI | `3000` | Single pane of glass dashboard combining Prometheus, Loki, OpenSearch, and Jaeger. |
 | **Kibana** | Analytics UI | Elasticsearch Dashboard | `5601` | Dedicated search UI and visualization interface for Elasticsearch clusters. |
+| **OpenSearch Dashboards** | UI & Visualization | Log discovery, search queries, dashboards, and SIEM | `5601` | Stateless web interface connecting to OpenSearch cluster for search, SIEM, and ISM. |
+
+---
+
+### 3.1 Dedicated Specification: OpenSearch & OpenSearch Dashboards
+
+| Tool | Category | Primary Function | Storage Engine | Query Language | Default Port |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **OpenSearch** | Log & Full-Text Search | Distributed search, log analytics, security event auditing | Lucene inverted index on Persistent Volume (Longhorn) | Lucene / DQL / OpenSearch SQL | `9200` (REST) / `9300` (Transport) |
+| **OpenSearch Dashboards** | UI & Visualization | Log discovery, search queries, dashboards, and SIEM | Stateless (connects to OpenSearch cluster) | Web UI / Kibana-compatible | `5601` |
 
 ---
 
@@ -569,6 +625,14 @@ flowchart TD
   * Rich, full-text free-form search capabilities.
   * Mature enterprise security, machine learning anomaly detection, and SIEM features.
   * Higher storage and memory requirements due to inverted indices.
+
+### 3. The Modern OpenSearch Observability Stack (Apache 2.0 Open-Source)
+* **Components:** **OpenSearch**, **OpenSearch Dashboards**, **Grafana Alloy / Data Prepper / Fluent Bit**.
+* **Advantages:**
+  * 100% open-source (Apache 2.0 license) community successor to Elasticsearch & Kibana without commercial license restrictions.
+  * Native OpenTelemetry trace & log integration (Trace Analytics in Dashboards).
+  * Built-in Security Analytics plugin (pre-packaged Sigma detection rules for container and Kubernetes audit logs).
+  * **Unified Visualization:** Can be queried natively in **OpenSearch Dashboards** AND integrated into **Grafana** alongside Prometheus and Loki using the official OpenSearch Grafana plugin.
 
 ---
 

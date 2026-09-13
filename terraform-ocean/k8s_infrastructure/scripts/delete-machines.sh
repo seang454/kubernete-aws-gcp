@@ -24,7 +24,7 @@ Examples:
   $(basename "$0") --plan k8s-worker03 k8s-worker04
   $(basename "$0") k8s-worker04 k8s-master02
 
-Instance names use the full name with prefix: k8s-master01 (GCP), k8s-worker01 (AWS), etc.
+Instance names use the full name with prefix: k8s-master01 (GCP), k8s-worker01 (AWS), k8s-worker05 (DigitalOcean), etc.
 EOF
   exit 1
 }
@@ -49,7 +49,7 @@ terraform -chdir="$INFRA_DIR" init -input=false > /dev/null 2>&1
 
 # --- List mode -------------------------------------------------------------
 if $LIST_ONLY; then
-  echo -e "${CYAN}All instance names (GCP & AWS) defined in Terraform:${NC}"
+  echo -e "${CYAN}All instance names (GCP, AWS & DigitalOcean) defined in Terraform:${NC}"
   echo
   terraform -chdir="$INFRA_DIR" output -json machine_plan 2>/dev/null \
     | python3 -c "

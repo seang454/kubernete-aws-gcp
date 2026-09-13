@@ -1,3 +1,8 @@
+# Cloud Provider Activation Toggles
+enable_gcp          = true
+enable_aws          = true
+enable_digitalocean = false
+
 # GCP Configuration
 project_id = "YOUR_GCP_PROJECT_ID"
 region     = "asia-east1"
@@ -20,6 +25,17 @@ aws_worker_root_disk_type    = "gp3"
 aws_allocate_elastic_ips     = true
 aws_vpc_cidr                 = "172.31.0.0/16"
 aws_source_dest_check        = false
+
+# DigitalOcean Configuration (Optional)
+# do_token                           = "dop_v1_xxxx" # Or set DIGITALOCEAN_TOKEN in shell
+digitalocean_control_plane_count    = 0
+digitalocean_worker_count           = 0 # Set to 2 to add 2 worker nodes on DigitalOcean
+digitalocean_region                 = "sgp1"
+digitalocean_worker_sizes           = ["s-2vcpu-4gb"]
+digitalocean_fallback_sizes         = ["s-4vcpu-8gb", "c-2"]
+digitalocean_allocate_reserved_ips  = true
+digitalocean_worker_data_disk_size_gb = 0
+
 
 cluster_name         = "kubespray"
 instance_name_prefix = "k8s"
