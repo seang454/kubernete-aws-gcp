@@ -2,7 +2,7 @@
 
 This Ansible project automates the deployment, verification, and teardown of the complete cloud-native observability stack for Kubernetes, covering **Metrics**, **Logs**, and **Distributed Traces**.
 
-For complete architecture diagrams and deep-dive explanations, see the [Observability Architecture Guide](./observability-architecture-guide.md).
+For complete architecture diagrams and deep-dive explanations, see the [Observability Architecture Guide](./observability-architecture-guide.md) and the [Centralized Logging Tools Guide (ELK vs. OpenSearch vs. Graylog vs. Loki)](./logging-tools-guide.md).
 
 ---
 
