@@ -45,11 +45,11 @@ blocked_machine_types = []
 
 # Machine types for GCP nodes
 control_plane_machine_types = [
-  "e2-medium"
+  "e2-standard-2"
 ]
 
 worker_machine_types = [
-  "e2-medium"
+  "e2-standard-2"
 ]
 
 fallback_machine_types = [
@@ -65,9 +65,10 @@ random_resource_type = [
 ]
 
 image                           = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
-control_plane_boot_disk_size_gb = 50
-worker_boot_disk_size_gb        = 50
+control_plane_boot_disk_size_gb = 60
+worker_boot_disk_size_gb        = 60
 boot_disk_type                  = "pd-balanced"
+auto_expand_disk_filesystem     = false # Set true to automatically execute expand-disk.yml via Ansible during terraform apply
 
 network    = "default"
 subnetwork = null
@@ -90,16 +91,19 @@ aws_availability_zones         = []
 aws_auto_discover_up_zones     = true
 aws_blocked_availability_zones = []
 
+# Specific AWS AMI image (Ubuntu 24.04 LTS x86_64 in ap-southeast-1)
+aws_worker_ami_id = "ami-0f78fc0711eeb6f28"
+
 # Machine types for AWS nodes (conforms to AWS Account tier restrictions)
-aws_control_plane_machine_types = ["t3.small"]
-aws_worker_machine_types        = ["t3.small"]
-aws_fallback_machine_types      = ["t3.small", "t3.micro"]
+aws_control_plane_machine_types = ["t4g.small"]
+aws_worker_machine_types        = ["t4g.small"]
+aws_fallback_machine_types      = ["t4g.small", "t4g.small"]
 aws_blocked_machine_types       = []
 aws_random_resource_type        = ["Standard", "High CPU", "High Memory"]
 
 # Storage (50 GB for both Master and Worker nodes)
-aws_control_plane_boot_disk_size_gb = 50 # master03 (AWS Master)
-aws_worker_root_disk_size_gb        = 50 # worker01..worker04 (AWS Workers)
+aws_control_plane_boot_disk_size_gb = 60 # master03 (AWS Master)
+aws_worker_root_disk_size_gb        = 60 # worker01..worker04 (AWS Workers)
 aws_worker_root_disk_type           = "gp3"
 aws_worker_data_disk_size_gb        = 0 # Set > 0 for optional secondary EBS volume (/dev/sdb)
 aws_worker_data_disk_type           = "gp3"

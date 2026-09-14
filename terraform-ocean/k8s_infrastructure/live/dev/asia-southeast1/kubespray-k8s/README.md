@@ -122,39 +122,151 @@ cd terraform/ansible_kubespray_k8s/kubespray
 ansible-playbook -i inventory/sample/inventory.ini cluster.yml
 ```
 
-## Stopping and Starting Machines
+---
 
-To stop (power off) the created VMs without destroying them or losing configuration:
+## 🚀 Supported Run Modes & Cluster Operations Guide
 
-Via CLI:
-```bash
-terraform apply -var="desired_status=TERMINATED"
-```
+This cluster architecture supports multiple operational run modes to match your purpose:
 
-Or run the helper script:
-```bash
-../../../scripts/stop-machines.sh
-```
-
-To start (power on) the machines back up:
-
-Via CLI:
+### 1. Full Cluster Deployment (All Nodes Active)
+Deploys or resumes all control planes and worker nodes across all enabled clouds:
 ```bash
 terraform apply -var="desired_status=RUNNING"
 ```
 
-Or run the helper script:
+---
+
+### 2. Cost-Saving / Sleep Mode ($0 Compute Cost)
+Powers off all VMs across GCP and AWS without deleting them. All root disks, secondary disks, static public IPs, and cluster configurations are preserved:
 ```bash
-../../../scripts/start-machines.sh
+terraform apply -var="desired_status=TERMINATED"
+```
+> **Tip:** Run this whenever you finish testing for the day to drop compute billing to $0/hr while keeping everything intact.
+
+---
+
+### 3. Selective Node Stopping (`stop_nodes`)
+Keep specific nodes running while pausing others without destroying them:
+
+In `terraform.tfvars`:
+```hcl
+stop_nodes = ["k8s-worker03", "k8s-worker04"]
+```
+Then run:
+```bash
+terraform apply -var="desired_status=RUNNING"
+```
+- `master01`, `master02`, `master03`, `worker01`, `worker02` will remain active.
+- `worker03` and `worker04` are kept in a stopped state ($0 compute).
+- Remove them from `stop_nodes = []` and apply to power them back on anytime.
+
+---
+
+### 4. Resizing RAM & CPU In-Place (Zero VM Replacement)
+All cloud providers in this configuration support in-place machine type updates without destroying the VMs:
+
+In `terraform.tfvars`:
+```hcl
+# GCP Control Plane (e2-medium 4GB -> e2-standard-2 8GB):
+control_plane_machine_types = ["e2-standard-2"]
+
+# AWS Workers (t3.small 2GB -> t3.medium 4GB):
+aws_worker_machine_types = ["t3.medium"]
+```
+Then run:
+```bash
+terraform apply -var="desired_status=RUNNING"
+```
+*(Terraform gracefully stops the VM, modifies CPU/RAM via the cloud provider API, and restarts it in-place).*
+
+---
+
+### 5. Resizing Boot Disks Online (Zero Downtime)
+Expand storage capacity (e.g. from 50 GB to 60 GB or 100 GB):
+
+1. Update target sizes in `terraform.tfvars`:
+   ```hcl
+   control_plane_boot_disk_size_gb     = 60
+   aws_worker_root_disk_size_gb        = 60
+   aws_control_plane_boot_disk_size_gb = 60
+   ```
+2. Apply with Terraform:
+   ```bash
+   terraform apply -var="desired_status=RUNNING"
+   ```
+   - **GCP:** Handled automatically by the `gcp-disk-resizer` module using `gcloud compute disks resize` online.
+   - **AWS:** Expanded online via AWS EBS volume resize.
+3. Expand Linux partitions & filesystem online (no reboot needed):
+   ```bash
+   cd ~/kubernete-aws-gcp/terraform/increase-disk-alignment
+   ansible-playbook -i inventory.ini expand-disk.yml
+   ```
+   *(Or set `auto_expand_disk_filesystem = true` in `terraform.tfvars` for Terraform to trigger this automatically).*
+
+---
+
+### 6. Cloud Provider Toggles
+You can selectively enable or disable entire cloud providers based on your purpose:
+
+In `terraform.tfvars`:
+```hcl
+enable_gcp          = true   # Set false to bypass GCP
+enable_aws          = true   # Set false to bypass AWS completely ($0 cost)
+enable_digitalocean = false  # Set true when ready for DO
 ```
 
-Or set `desired_status = "TERMINATED"` (or `"RUNNING"`) in `terraform.tfvars` and run `terraform apply`.
+---
 
-## Important Variables
+### 7. Explicit Image / AMI Locking
+Each cloud has its OS image explicitly locked in `terraform.tfvars` to prevent accidental drift:
+
+```hcl
+# GCP:
+image = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
+
+# AWS (x86_64 for t3 instances):
+aws_worker_ami_id = "ami-0ba4172b23e57d5a8"
+
+# AWS (ARM64 for t4g Graviton instances):
+# aws_worker_ami_id = "ami-0f78fc0711eeb6f28"
+
+# DigitalOcean:
+digitalocean_image = "ubuntu-24-04-x64"
+```
+
+---
+
+### 8. Anti-Destruction Protection (`prevent_destroy`)
+To prevent accidental VM deletion (from typos, incompatible machine types, or accidental commands):
+- Every VM resource across GCP, AWS, and DigitalOcean has **`prevent_destroy = true`**.
+- Any command or configuration change that would accidentally replace or destroy an existing VM is **immediately blocked by Terraform with an error**.
+
+#### How to Intentionally Destroy All Machines:
+When you genuinely want to tear down the cluster:
+
+```bash
+# 1. Unlock destroy protection:
+./toggle_destroy_protection.sh disable
+
+# 2. Run terraform destroy:
+terraform destroy
+
+# 3. Re-lock protection:
+./toggle_destroy_protection.sh enable
+```
+
+To check current protection status at any time:
+```bash
+./toggle_destroy_protection.sh status
+```
+
+---
+
+## Important Variables Summary
 
 ```hcl
 control_plane_count = 3
-worker_count        = 3
+worker_count        = 4
 
 ssh_user            = "seang"
 ssh_public_key_path = "~/.ssh/id_rsa.pub"
@@ -165,13 +277,3 @@ ansible_ssh_private_key_file = "~/.ssh/id_rsa"
 
 kubespray_inventory_path = "../../../../../ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini"
 ```
-
-## What Was Removed
-
-This Kubernetes infra does not use:
-
-- Cloudflare DNS records.
-- SonarQube/Jenkins/Nexus/DefectDojo/Trivy/Vault service inventory.
-- Terraform-generated Ansible service `group_vars`.
-
-Those belong to `terraform/infrastructure`, not `terraform/k8s_infrastructure`.

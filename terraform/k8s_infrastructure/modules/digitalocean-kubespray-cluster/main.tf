@@ -175,10 +175,11 @@ resource "terraform_data" "preflight" {
 resource "digitalocean_droplet" "this" {
   for_each = local.active_nodes_by_name
 
-  name     = each.value.instance_name
-  region   = each.value.zone
-  size     = each.value.machine_type
-  image    = var.image
+  name        = each.value.instance_name
+  region      = each.value.zone
+  size        = each.value.machine_type
+  resize_disk = var.resize_disk
+  image       = var.image
   ssh_keys = length(digitalocean_ssh_key.this) > 0 ? [digitalocean_ssh_key.this[0].id] : []
   vpc_uuid = var.vpc_uuid
 
@@ -195,6 +196,7 @@ resource "digitalocean_droplet" "this" {
   ])
 
   lifecycle {
+    prevent_destroy = true
     ignore_changes = [
       image,
       user_data,
@@ -270,10 +272,13 @@ resource "digitalocean_firewall" "k8s" {
   droplet_ids = [for d in digitalocean_droplet.this : d.id]
 
   # SSH (port 22)
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "22"
-    source_addresses = var.ssh_source_ranges
+  dynamic "inbound_rule" {
+    for_each = length(var.ssh_source_ranges) > 0 ? [1] : []
+    content {
+      protocol         = "tcp"
+      port_range       = "22"
+      source_addresses = var.ssh_source_ranges
+    }
   }
 
   # WireGuard VPN Mesh (udp 51820)

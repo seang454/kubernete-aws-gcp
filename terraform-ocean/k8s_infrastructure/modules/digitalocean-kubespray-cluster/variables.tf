@@ -241,6 +241,12 @@ variable "custom_firewall_rules" {
 # ---------------------------------------------------------------------------
 # Concepts 6 & 7: Power State, Exclude Nodes & Stop Nodes
 # ---------------------------------------------------------------------------
+variable "resize_disk" {
+  description = "Whether to increase the Droplet disk size when resizing RAM/CPU. False allows flexible resizing (can scale RAM up and down without permanently expanding disk)."
+  type        = bool
+  default     = false
+}
+
 variable "desired_status" {
   description = "Desired power state for instances: RUNNING or TERMINATED (stopped)."
   type        = string

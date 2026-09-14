@@ -524,6 +524,12 @@ variable "increase_disk_inventory_path" {
   default     = "../../../../../increase-disk-alignment/inventory.ini"
 }
 
+variable "auto_expand_disk_filesystem" {
+  description = "Whether to automatically run the expand-disk Ansible playbook via Terraform after resizing GCP disks."
+  type        = bool
+  default     = false
+}
+
 # ---------------------------------------------------------------------------
 # Power State & Selective Deletion
 # ---------------------------------------------------------------------------

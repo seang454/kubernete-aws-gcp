@@ -283,3 +283,42 @@ resource "google_compute_firewall" "allow_digitalocean_nodes" {
 
   target_tags = ["${var.cluster_name}-cluster"]
 }
+
+# ---------------------------------------------------------------------------
+# GCP Online Boot Disk Resizer Module
+# Safely resizes GCP boot disks in-place without replacing or stopping VMs.
+# ---------------------------------------------------------------------------
+module "gcp_disk_resizer" {
+  source = "../../../../modules/gcp-disk-resizer"
+
+  enabled    = var.enable_gcp
+  project_id = var.project_id
+
+  disks = merge(
+    {
+      for node in module.gcp_kubespray_cluster.control_plane_nodes :
+      node.name => {
+        disk_name      = node.instance_name
+        zone           = node.zone
+        target_size_gb = var.control_plane_boot_disk_size_gb
+      }
+    },
+    {
+      for node in module.gcp_kubespray_cluster.worker_nodes :
+      node.name => {
+        disk_name      = node.instance_name
+        zone           = node.zone
+        target_size_gb = var.worker_boot_disk_size_gb
+      }
+    }
+  )
+
+  auto_expand_filesystem = var.auto_expand_disk_filesystem
+  ansible_inventory_path = abspath("${path.module}/${var.increase_disk_inventory_path}")
+  ansible_playbook_path  = abspath("${path.module}/../../../../../increase-disk-alignment/expand-disk.yml")
+
+  depends_on = [
+    module.gcp_kubespray_cluster,
+    local_file.increase_disk_inventory
+  ]
+}

@@ -116,8 +116,34 @@ data "aws_ami" "ubuntu" {
   }
 }
 
+data "aws_ami" "ubuntu_arm64" {
+  count       = var.enabled ? 1 : 0
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name = "name"
+    values = [
+      "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*",
+      "ubuntu/images/hvm-ssd/ubuntu-noble-24.04-arm64-server-*"
+    ]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+}
+
 locals {
-  resolved_ami_id = var.ami_id != null && var.ami_id != "" ? var.ami_id : try(data.aws_ami.ubuntu[0].id, "")
+  is_arm_machine = anytrue([
+    for m in concat(var.control_plane_machine_types, var.worker_machine_types) :
+    can(regex("^(t4g|m6g|c6g|r6g|c7g|m7g|r7g|a1|im4gn|is4gen)\\.", m))
+  ])
+
+  resolved_ami_id = var.ami_id != null && var.ami_id != "" ? var.ami_id : (
+    local.is_arm_machine ? try(data.aws_ami.ubuntu_arm64[0].id, "") : try(data.aws_ami.ubuntu[0].id, "")
+  )
 }
 
 # 5. SSH Key Pair
@@ -151,6 +177,7 @@ resource "aws_security_group" "worker" {
 
 # Ingress SSH (22)
 resource "aws_security_group_rule" "ssh" {
+  count             = length(var.ssh_source_ranges) > 0 ? 1 : 0
   type              = "ingress"
   from_port         = 22
   to_port           = 22
@@ -386,6 +413,20 @@ resource "terraform_data" "preflight" {
       condition     = length(setintersection(toset(var.exclude_nodes), toset(var.stop_nodes))) == 0
       error_message = "A node cannot be in both exclude_nodes (delete) and stop_nodes (stop): ${join(", ", setintersection(toset(var.exclude_nodes), toset(var.stop_nodes)))}"
     }
+
+    precondition {
+      condition = (
+        !local.is_arm_machine || var.ami_id == null || var.ami_id == "" || var.ami_id == try(data.aws_ami.ubuntu_arm64[0].id, "")
+      )
+      error_message = "Architecture Mismatch Guard: ARM/Graviton machine types (such as t4g.*, m6g.*) require an ARM64 AMI (such as ami-0f78fc0711eeb6f28). You cannot pair ARM machines with an x86 AMI."
+    }
+
+    precondition {
+      condition = (
+        local.is_arm_machine || var.ami_id == null || var.ami_id == "" || var.ami_id != try(data.aws_ami.ubuntu_arm64[0].id, "")
+      )
+      error_message = "Architecture Mismatch Guard: x86 machine types (such as t3.*, m5.*) cannot be used with an ARM64 AMI (ami-0f78fc0711eeb6f28). Use an x86_64 AMI (such as ami-0ba4172b23e57d5a8)."
+    }
   }
 }
 
@@ -425,6 +466,7 @@ resource "aws_instance" "this" {
   })
 
   lifecycle {
+    prevent_destroy = true
     ignore_changes = [
       ami,
       user_data,

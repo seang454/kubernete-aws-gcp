@@ -275,6 +275,7 @@ resource "google_compute_instance" "this" {
   })
 
   lifecycle {
+    prevent_destroy = true
     ignore_changes = [
       boot_disk[0].initialize_params[0].size,
       boot_disk[0].initialize_params[0].image,
@@ -283,6 +284,7 @@ resource "google_compute_instance" "this" {
 }
 
 resource "google_compute_firewall" "ssh" {
+  count   = length(var.ssh_source_ranges) > 0 ? 1 : 0
   name    = "${var.instance_name_prefix}-allow-ssh"
   network = var.network
 
@@ -308,6 +310,7 @@ resource "google_compute_firewall" "internal" {
 }
 
 resource "google_compute_firewall" "kubernetes_api" {
+  count   = var.control_plane_count > 0 && length(var.kubernetes_api_source_ranges) > 0 ? 1 : 0
   name    = "${var.instance_name_prefix}-allow-kube-api"
   network = var.network
 
