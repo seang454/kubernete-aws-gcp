@@ -16,7 +16,13 @@ Comprehensive comparison and architectural guide evaluating the leading enterpri
 5. [Should You Run Them All Together? (Anti-Patterns Explained)](#5-should-you-run-them-all-together-anti-patterns-explained)
 6. [The Recommended Architecture: Two-Tier Dual Logging](#6-the-recommended-architecture-two-tier-dual-logging)
 7. [Decision Framework: Which Tool Should You Choose?](#7-decision-framework-which-tool-should-you-choose)
-8. [Mapping to Our Kubernetes Cluster Setup](#8-mapping-to-our-kubernetes-cluster-setup)
+8. [Installation Architectures & Step-by-Step Deployment (Do Tools Install Separately?)](#8-installation-architectures--step-by-step-deployment-do-tools-install-separately)
+   - [8.1 Why and How Tools Install Separately](#81-why-and-how-tools-install-separately)
+   - [8.2 OpenSearch Installation & Architecture](#82-opensearch-installation--architecture)
+   - [8.3 ELK Stack Installation & Architecture (via ECK Operator)](#83-elk-stack-installation--architecture-via-eck-operator)
+   - [8.4 Graylog Installation & Architecture (3-Tier Sequential Dependencies)](#84-graylog-installation--architecture-3-tier-sequential-dependencies)
+   - [8.5 Installation Complexity & Component Comparison](#85-installation-complexity--component-comparison)
+9. [Mapping to Our Kubernetes Cluster Setup](#9-mapping-to-our-kubernetes-cluster-setup)
 
 ---
 
@@ -266,7 +272,246 @@ flowchart TD
 
 ---
 
-## 8. Mapping to Our Kubernetes Cluster Setup
+## 8. Installation Architectures & Step-by-Step Deployment (Do Tools Install Separately?)
+
+### 8.1 Why and How Tools Install Separately
+
+In production Kubernetes environments, **logging tools are almost never installed as a single monolithic package**. They are decoupled into separate workloads that are deployed in distinct stages:
+
+1. **Edge Collectors / Shippers (DaemonSet):** Must run on **every worker node** to access `/var/log/pods` and node system journals (e.g., Grafana Alloy, Filebeat, Promtail).
+2. **Storage & Search Engine (StatefulSet):** Requires persistent storage (PVCs on Longhorn/EBS), Java heap configuration, and stateful clustering (e.g., OpenSearch, Elasticsearch).
+3. **Visualization / Web UI (Deployment):** Stateless web applications (OpenSearch Dashboards, Kibana) deployed separately and pointed at the storage service via HTTP/gRPC.
+4. **Metadata & State Stores (Prerequisite DBs):** Required by tools like Graylog, which cannot start until **MongoDB** is already active to hold configuration, streams, and credentials.
+
+---
+
+### 8.2 OpenSearch Installation & Architecture
+
+OpenSearch consists of two core workloads inside the cluster plus the edge shipper:
+
+#### 📐 OpenSearch Architecture
+```mermaid
+flowchart TD
+    subgraph Nodes["Kubernetes Worker Nodes (All Nodes)"]
+        alloy["🟣 Grafana Alloy or Fluent Bit (DaemonSet)<br><i>Tails /var/log/pods on every host</i>"]
+    end
+
+    subgraph OpenSearchCluster["StatefulSet: Namespace 'opensearch'"]
+        os1["🔍 OpenSearch Pod 1 (PVC)"]
+        os2["🔍 OpenSearch Pod 2 (PVC)"]
+        os3["🔍 OpenSearch Pod 3 (PVC)"]
+        svcOS["Service: opensearch-cluster:9200"]
+    end
+
+    subgraph Dashboards["Deployment: Namespace 'opensearch'"]
+        osDash["🔍 OpenSearch Dashboards Pod (Port 5601)"]
+    end
+
+    alloy -->|Pushes JSON Logs over HTTP :9200| svcOS
+    svcOS --- os1 & os2 & os3
+    osDash -->|Queries Lucene Index| svcOS
+    user["DevOps / Security Engineer"] -->|Browser :5601| osDash
+```
+
+#### 🛠️ Step-by-Step Installation (3 Steps)
+
+##### Step 1: Deploy OpenSearch (Storage Engine)
+```bash
+helm repo add opensearch https://opensearch-project.github.io/helm-charts/
+helm repo update
+
+helm install opensearch-cluster opensearch/opensearch \
+  --namespace opensearch --create-namespace \
+  --set singleNode=true \
+  --set persistence.storageClass="longhorn" \
+  --set persistence.size="15Gi" \
+  --set opensearchJavaOpts="-Xms512m -Xmx512m" \
+  --set securityConfig.anonymousAuthEnabled=true
+```
+
+##### Step 2: Deploy OpenSearch Dashboards (Web UI)
+Installed as a separate Deployment that connects to the OpenSearch service:
+```bash
+helm install opensearch-dashboards opensearch/opensearch-dashboards \
+  --namespace opensearch \
+  --set opensearchHosts="http://opensearch-cluster:9200" \
+  --set service.type=ClusterIP \
+  --set service.port=5601
+```
+
+##### Step 3: Deploy the Shipper DaemonSet
+Deploy **Grafana Alloy** across all nodes to tail container logs and push to `http://opensearch-cluster.opensearch.svc:9200` *(already automated in our `roles/alloy`)*.
+
+---
+
+### 8.3 ELK Stack Installation & Architecture (via ECK Operator)
+
+In the ELK ecosystem, every letter is an independent project. The recommended Kubernetes deployment method uses the **ECK (Elastic Cloud on Kubernetes) Operator**.
+
+#### 📐 ELK Stack Architecture
+```mermaid
+flowchart TD
+    subgraph Edge["All Kubernetes Worker Nodes"]
+        fb["📦 Filebeat / Metricbeat (DaemonSet)<br><i>Harvesters tailing /var/log/containers</i>"]
+    end
+
+    subgraph LogstashTier["Optional ETL Layer (Deployment)"]
+        ls["⚙️ Logstash Pods<br><i>Grok Regex Parsing & Mutations (Heavy)</i>"]
+    end
+
+    subgraph ESTier["Elasticsearch Cluster (StatefulSet via ECK)"]
+        es1["🔥 Elasticsearch Node 1 (JVM Heap)"]
+        es2["🔥 Elasticsearch Node 2 (JVM Heap)"]
+        esSvc["Service: quickstart-es-http:9200"]
+    end
+
+    subgraph KibanaTier["Kibana UI (Deployment via ECK)"]
+        kibana["📊 Kibana Pod (Port 5601)"]
+    end
+
+    fb -->|Raw Logs| ls
+    ls -->|Structured Documents| esSvc
+    esSvc --- es1 & es2
+    kibana -->|Queries Indices| esSvc
+```
+
+#### 🛠️ Step-by-Step Installation (4 Stages)
+
+##### Stage 1: Deploy the ECK Operator
+```bash
+kubectl apply -f https://download.elastic.co/downloads/eck/2.12.1/crds.yaml
+kubectl apply -f https://download.elastic.co/downloads/eck/2.12.1/operator.yaml
+```
+
+##### Stage 2: Deploy Elasticsearch Cluster Manifest
+```yaml
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: quickstart
+  namespace: elastic-system
+spec:
+  version: 8.13.0
+  nodeSets:
+  - name: default
+    count: 3
+    config:
+      node.store.allow_mmap: false
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: "longhorn"
+        resources:
+          requests:
+            storage: 20Gi
+```
+
+##### Stage 3: Deploy Kibana Manifest
+```yaml
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: quickstart
+  namespace: elastic-system
+spec:
+  version: 8.13.0
+  count: 1
+  elasticsearchRef:
+    name: quickstart
+```
+
+##### Stage 4: Deploy Filebeat DaemonSet
+Deploy Filebeat to harvest node container logs and ship them into `quickstart-es-http`.
+
+---
+
+### 8.4 Graylog Installation & Architecture (3-Tier Sequential Dependencies)
+
+Graylog **cannot be installed in a single step**. It has a strict 3-stage dependency chain:
+
+#### 📐 Graylog 3-Tier Architecture
+```mermaid
+flowchart TD
+    subgraph Sources["Log Sources"]
+        syslog["Firewalls / Routers (Syslog UDP 514)"]
+        appLogs["Apps & Kubernetes Pods (GELF / Beats)"]
+    end
+
+    subgraph Tier1["Tier 1: Configuration Store (StatefulSet)"]
+        mongo[("🍃 MongoDB<br><i>Stores: Users, Permissions, Streams, Alerts</i>")]
+    end
+
+    subgraph Tier2["Tier 2: Log Search & Storage Engine (StatefulSet)"]
+        opensearch[("🔍 OpenSearch / Elasticsearch Cluster<br><i>Stores: Log documents & Lucene inverted indexes</i>")]
+    end
+
+    subgraph Tier3["Tier 3: Graylog Processing Engine & UI (Deployment)"]
+        graylog["🪵 Graylog Server + Embedded Web UI (Port 9000)<br><i>Processes streams, applies pipelines, pushes to OpenSearch</i>"]
+    end
+
+    syslog & appLogs -->|Stream Logs| graylog
+    graylog <-->|Reads/Writes State| mongo
+    graylog -->|Indexes & Searches Logs| opensearch
+    user["SysAdmin / SOC Team"] -->|Browser :9000| graylog
+```
+
+#### 🛠️ Step-by-Step Installation (Strict Sequence)
+
+##### Stage 1: Deploy MongoDB First (Dependency 1)
+Graylog stores user accounts, access permissions, stream rules, and alert definitions in MongoDB:
+```bash
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm install graylog-mongo bitnami/mongodb \
+  --namespace graylog --create-namespace \
+  --set persistence.storageClass="longhorn" \
+  --set persistence.size="5Gi"
+```
+
+##### Stage 2: Deploy OpenSearch Second (Dependency 2)
+Graylog delegates all log document storage and text indexing to OpenSearch:
+```bash
+helm install graylog-opensearch opensearch/opensearch \
+  --namespace graylog \
+  --set singleNode=true \
+  --set persistence.storageClass="longhorn" \
+  --set persistence.size="20Gi" \
+  --set opensearchJavaOpts="-Xms1g -Xmx1g"
+```
+
+##### Stage 3: Generate Secrets & Deploy Graylog Server Third
+Generate required authentication secrets, then install Graylog Server configured with connections to both databases:
+```bash
+# 1. Generate secrets
+SECRET=$(pwgen -N 1 -s 96)
+PASSWORD_HASH=$(echo -n "YourAdminPassword" | sha256sum | awk '{print $1}')
+
+# 2. Deploy Graylog Server
+helm repo add kong-z https://kong-z.github.io/charts
+helm install graylog kong-z/graylog \
+  --namespace graylog \
+  --set graylog.secret=$SECRET \
+  --set graylog.rootPasswordSha2=$PASSWORD_HASH \
+  --set graylog.elasticsearch.hosts="http://graylog-opensearch:9200" \
+  --set graylog.mongodb.uri="mongodb://graylog-mongo:27017/graylog" \
+  --set graylog.service.type=NodePort
+```
+
+---
+
+### 8.5 Installation Complexity & Component Comparison
+
+| Logging Stack | Separate Workloads to Deploy | Total Microservices Running | Installation Complexity | Minimum RAM Required |
+| :--- | :--- | :---: | :---: | :---: |
+| **OpenSearch** | 1. OpenSearch Cluster<br>2. OpenSearch Dashboards<br>3. Shipper DaemonSet (Alloy) | **3** | ⭐⭐ Moderate | **1.5 GB – 3 GB** |
+| **ELK Stack** | 1. ECK Operator Controller<br>2. Elasticsearch Cluster<br>3. Kibana Web UI<br>4. Filebeat DaemonSet / Logstash | **4 to 5** | ⭐⭐⭐ High | **4 GB – 8 GB** |
+| **Graylog** | **1. MongoDB**<br>**2. OpenSearch/Elasticsearch**<br>**3. Graylog Server & Web UI**<br>4. Log Shippers | **4 to 6** | ⭐⭐⭐⭐ High *(3 separate DB systems)* | **5 GB – 10 GB** |
+| **Grafana Loki** *(In our stack)* | 1. Loki StatefulSet<br>2. Grafana Alloy DaemonSet<br>*(Grafana UI is shared with Prometheus)* | **2** | ⭐ Low *(Lightweight)* | **< 1 GB** |
+
+---
+
+## 9. Mapping to Our Kubernetes Cluster Setup
 
 In this repository, our infrastructure is configured to use the **Two-Tier Strategy**:
 
