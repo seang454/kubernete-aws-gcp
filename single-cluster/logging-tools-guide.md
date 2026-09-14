@@ -377,6 +377,23 @@ flowchart TD
     user["DevOps / Security Engineer"] -->|Browser :5601| osDash
 ```
 
+#### 💡 What is Happening in the OpenSearch Architecture? (Step-by-Step Flow)
+
+1. **Worker Nodes (`Grafana Alloy / Fluent Bit` DaemonSet):**
+   - **What it does:** Runs on **every Kubernetes node**. It continuously monitors and tails container log files at `/var/log/pods/`.
+   - **How it handles data:** It reads raw log lines, enriches them with Kubernetes metadata (`namespace`, `pod_name`, `container_name`), formats them into standard JSON documents, and batches them into memory.
+2. **The Flow `alloy -->|HTTP :9200| svcOS`:**
+   - **What it does:** The shipper streams batches of logs over HTTP POST to the internal Kubernetes Service `opensearch-cluster:9200`.
+   - **Why this exists:** The Service acts as an internal load balancer, evenly spreading the incoming write traffic across all OpenSearch pods in the cluster.
+3. **The Core Engine (`OpenSearch Cluster` StatefulSet + Longhorn PVC):**
+   - **What it does:** The master and data pods receive the JSON documents and pass them through text analyzers.
+   - **How it stores data:** Every word in every log is indexed into an **Apache Lucene Inverted Index**. The data shards and indexes are written safely to persistent block storage (Longhorn PVCs) with replica copies for high availability.
+4. **The Web Portal (`OpenSearch Dashboards` Deployment :5601):**
+   - **What it does:** A lightweight, stateless web application.
+   - **How it works:** When an engineer opens the browser to search logs or view a dashboard, OpenSearch Dashboards translates the user's visual queries into OpenSearch REST API calls (`:9200`), retrieves the matching log records from the cluster, and renders graphs and tables.
+
+---
+
 #### 🛠️ Step-by-Step Installation (3 Steps)
 
 ##### Step 1: Deploy OpenSearch (Storage Engine)
@@ -438,6 +455,27 @@ flowchart TD
     esSvc --- es1 & es2
     kibana -->|Queries Indices| esSvc
 ```
+
+#### 💡 What is Happening in the ELK Stack Architecture? (Step-by-Step Flow)
+
+1. **Edge Harvesters (`Filebeat / Metricbeat` DaemonSet):**
+   - **What it does:** Runs as a tiny, lightweight Go agent on **every worker node**.
+   - **How it handles data:** Its sole responsibility is to tail `/var/log/containers/*.log` with minimal CPU and RAM impact. Because it does not run heavy regex transformations on edge nodes, it never slows down your application pods.
+2. **The Flow `fb -->|Raw Logs| ls` (Beats Protocol TCP :5044):**
+   - **What it does:** Filebeat establishes a TCP connection to the Logstash service and streams raw log lines using the optimized binary Beats protocol.
+3. **The Transformation Factory (`Logstash` Deployment):**
+   - **What it does:** The centralized ETL (Extract, Transform, Load) processing layer.
+   - **How it works:** Logstash takes raw strings and executes Grok regex patterns to extract structured fields (e.g., separating timestamps, IP addresses, HTTP status codes, and execution latencies). It enriches events with GeoIP data (converting IP addresses to city/country), redacts sensitive credit card or password data, and formats output as structured JSON.
+4. **The Flow `ls -->|Structured Documents| esSvc` (HTTP Bulk :9200):**
+   - **What it does:** Logstash batches thousands of structured JSON documents and flushes them into the Elasticsearch HTTP service `quickstart-es-http:9200`.
+5. **The Storage & Search Engine (`Elasticsearch Cluster` StatefulSet via ECK):**
+   - **What it does:** The core datastore managed by the ECK Operator.
+   - **How it stores data:** Elasticsearch distributes documents across primary and replica shards, builds an **Apache Lucene Inverted Index** on disk, and keeps hot index terms cached in JVM heap memory for instant sub-second search.
+6. **The Visualization Portal (`Kibana` Deployment via ECK :5601):**
+   - **What it does:** The graphical front-end for users.
+   - **How it works:** Engineers log into Kibana to search logs via KQL (Kibana Query Language), create visual Lens dashboards, trace distributed microservice transactions with Elastic APM, and manage SIEM security alerts.
+
+---
 
 #### 🛠️ Step-by-Step Installation (4 Stages)
 
@@ -520,6 +558,26 @@ flowchart TD
     graylog -->|Indexes & Searches Logs| opensearch
     user["SysAdmin / SOC Team"] -->|Browser :9000| graylog
 ```
+
+#### 💡 What is Happening in the Graylog 3-Tier Architecture? (Step-by-Step Flow)
+
+1. **Diverse Log Sources (Firewalls, Routers, K8s Pods):**
+   - **What it does:** Unlike ELK which relies mostly on local file tailing, Graylog is designed to listen directly for active network event streams.
+   - **How it sends data:** Physical network devices (Cisco switches, pfSense firewalls) stream Syslog packets over **UDP port 514**, while container runtimes push structured logs using GELF (Graylog Extended Log Format) over **TCP port 12201**.
+2. **The Central Processing Brain (`Graylog Server` Deployment):**
+   - **What it does:** The core traffic router and transformation engine.
+   - **How it works:** It hosts network input listeners, applies message extractors (JSON, Grok, regex), and categorizes incoming logs into isolated **"Streams"** (e.g., separating "PCI-DSS Compliance" from "Nginx Access"). This allows administrators to set granular access permissions so security teams see auth logs while developers only see application logs.
+3. **The Control Plane (`MongoDB` StatefulSet — Tier 1):**
+   - **What it does:** Manages Graylog's internal operational state.
+   - **Critical Architecture Rule:** MongoDB **never** stores actual log records! It only stores metadata: user logins, role permissions, alert definitions, saved searches, and input configurations.
+4. **The Data Storage Plane (`OpenSearch / Elasticsearch` StatefulSet — Tier 2):**
+   - **What it does:** The underlying search engine that does the heavy lifting.
+   - **How it works:** Once Graylog Server parses and routes a log message, it passes the document to OpenSearch. OpenSearch builds the **Apache Lucene Inverted Index** on disk and executes fast full-text queries on behalf of Graylog.
+5. **The User Console (`Graylog Web UI` on Port 9000):**
+   - **What it does:** Built directly into the Graylog Server binary.
+   - **How it works:** SysAdmins and SOC teams log into `http://<server-ip>:9000`. When they search for an error, Graylog queries OpenSearch, merges the results with user permissions stored in MongoDB, and presents the stream view.
+
+---
 
 #### 🛠️ Step-by-Step Installation (Strict Sequence)
 
