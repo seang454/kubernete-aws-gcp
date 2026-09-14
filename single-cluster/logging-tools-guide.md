@@ -6,6 +6,8 @@ Comprehensive comparison and architectural guide evaluating the leading enterpri
 
 ## 📑 Table of Contents
 1. [Executive Overview & Comparison Matrix](#1-executive-overview--comparison-matrix)
+   - [1.1 Master Side-by-Side Architectural Flow (All 4 Together)](#11-master-side-by-side-architectural-flow-all-4-together)
+   - [1.2 Component Rosetta Stone (Direct 1:1 Mapping)](#12-component-rosetta-stone-direct-11-mapping)
 2. [Deep Dive: Individual Platforms](#2-deep-dive-individual-platforms)
    - [2.1 The ELK Stack (Elasticsearch, Logstash, Kibana)](#21-the-elk-stack-elasticsearch-logstash-kibana)
    - [2.2 OpenSearch (OpenSearch + OpenSearch Dashboards)](#22-opensearch-opensearch--opensearch-dashboards)
@@ -41,6 +43,68 @@ Comprehensive comparison and architectural guide evaluating the leading enterpri
 | **RAM Footprint (Min)** | 4 GB – 16+ GB per node | 4 GB – 16+ GB per node | 6 GB – 20+ GB (Graylog + OS + Mongo) | **512 MB – 2 GB** |
 | **Storage Cost Factor** | 🔴 High (Large index files) | 🔴 High (Large index files) | 🔴 High (Large index files) | 🟢 **Ultra Low** (Compressed S3/PV) |
 | **Best Suited For** | Proprietary APM & Enterprise SIEM | **Open-source SIEM, Audit & Search** | **SysAdmin, Network & Syslog Ops** | **K8s Microservices & App Logs** |
+
+---
+
+### 1.1 Master Side-by-Side Architectural Flow (All 4 Together)
+
+Every logging system is built from **5 core pipeline stages**. This master diagram maps how all four architectures compare side-by-side:
+
+```mermaid
+flowchart TD
+    subgraph S1["STAGE 1: LOG SOURCES"]
+        src["Kubernetes Pods (/var/log/pods)<br>Systemd / Host Syslog<br>Network Appliances / Firewalls"]
+    end
+
+    subgraph S2["STAGE 2: EDGE SHIPPERS (DaemonSet / Agents)"]
+        elk_ship["ELK:<br><b>Filebeat / Metricbeat</b>"]
+        os_ship["OpenSearch:<br><b>Grafana Alloy / Fluent Bit</b>"]
+        gray_ship["Graylog:<br><b>Sidecar / Syslog / GELF</b>"]
+        loki_ship["Loki:<br><b>Grafana Alloy / Promtail</b>"]
+    end
+
+    subgraph S3["STAGE 3: INGESTION & HEAVY ETL (Optional)"]
+        elk_etl["ELK:<br><b>Logstash</b><br><i>(Grok Regex, GeoIP, heavy mutations)</i>"]
+        os_etl["OpenSearch:<br><b>OpenSearch Ingestion / Data Prepper</b><br><i>(Transforms & schema mapping)</i>"]
+        gray_etl["Graylog:<br><b>Graylog Server Processing Engine</b><br><i>(Streams, extractors, drop filters)</i>"]
+        loki_etl["Loki:<br><b>Alloy Pipeline Stage</b><br><i>(Regex, label extraction, JSON parse)</i>"]
+    end
+
+    subgraph S4["STAGE 4: STORAGE & SEARCH ENGINES"]
+        elk_store["ELK:<br><b>Elasticsearch Cluster</b><br><i>(Lucene Inverted Index)</i>"]
+        os_store["OpenSearch:<br><b>OpenSearch Cluster</b><br><i>(Lucene Inverted Index - Apache 2.0)</i>"]
+        gray_store["Graylog:<br><b>OpenSearch or Elasticsearch</b><br><i>+ 🍃 <b>MongoDB</b> for user/stream state</i>"]
+        loki_store["Loki:<br><b>Loki Chunks + TSDB Index</b><br><i>(Compressed Gzip chunks on S3/PV)</i>"]
+    end
+
+    subgraph S5["STAGE 5: VISUALIZATION & QUERY CONSOLES"]
+        elk_ui["ELK:<br><b>Kibana (Port 5601)</b><br><i>(KQL / Lucene queries)</i>"]
+        os_ui["OpenSearch:<br><b>OpenSearch Dashboards (Port 5601)</b><br><i>(DQL / PPL / SQL queries)</i>"]
+        gray_ui["Graylog:<br><b>Graylog Web Interface (Port 9000)</b><br><i>(Stream-based search)</i>"]
+        loki_ui["Loki:<br><b>Unified Grafana (Port 3000)</b><br><i>(LogQL queries + Prometheus metrics)</i>"]
+    end
+
+    %% Data Flow Connections
+    src --> elk_ship & os_ship & gray_ship & loki_ship
+    elk_ship --> elk_etl --> elk_store --> elk_ui
+    os_ship --> os_etl --> os_store --> os_ui
+    gray_ship --> gray_etl --> gray_store --> gray_ui
+    loki_ship --> loki_etl --> loki_store --> loki_ui
+```
+
+---
+
+### 1.2 Component Rosetta Stone (Direct 1:1 Mapping)
+
+| Pipeline Role | 🅰️ ELK Stack | 🅱️ OpenSearch | 🅲 Graylog | 🅳 Grafana Loki |
+| :--- | :--- | :--- | :--- | :--- |
+| **Edge Shipper** | **Filebeat** / Elastic Agent | **Grafana Alloy** / Fluent Bit | Graylog Sidecar / Syslog | **Grafana Alloy** / Promtail |
+| **ETL / Parser** | **Logstash** | **Data Prepper** / Alloy | **Graylog Server Pipelines** | **Alloy `stage.regex`** |
+| **Search Engine** | **Elasticsearch** (Lucene) | **OpenSearch** (Lucene) | **OpenSearch / ES** (Lucene) | **Loki Ingester / Querier** |
+| **Metadata Store**| Internal Cluster State | Internal Cluster State | 🍃 **MongoDB** *(External requirement)* | TSDB / Object Store Index |
+| **Dashboard UI** | **Kibana** | **OpenSearch Dashboards** | **Graylog Web UI** | **Unified Grafana** |
+| **Query Syntax** | KQL / Lucene / ES\|QL | DQL / PPL / SQL | Graylog Search Syntax | **LogQL** |
+| **License Type** | SSPL / AGPLv3 / Commercial | **100% Apache 2.0 (OSS)** | SSPL / Commercial Enterprise | **AGPLv3 (OSS)** |
 
 ---
 
