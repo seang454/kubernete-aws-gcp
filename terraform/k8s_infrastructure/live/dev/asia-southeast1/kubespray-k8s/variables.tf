@@ -518,6 +518,12 @@ variable "wireguard_inventory_path" {
   default     = "../../../../../wiregurad/inventory/hosts.ini"
 }
 
+variable "increase_disk_inventory_path" {
+  description = "Path where the increase-disk-alignment Ansible inventory.ini will be generated."
+  type        = string
+  default     = "../../../../../increase-disk-alignment/inventory.ini"
+}
+
 # ---------------------------------------------------------------------------
 # Power State & Selective Deletion
 # ---------------------------------------------------------------------------
@@ -652,6 +658,12 @@ variable "digitalocean_allocate_reserved_ips" {
   description = "Whether to allocate static Reserved IPs for DigitalOcean droplets."
   type        = bool
   default     = true
+}
+
+variable "digitalocean_control_plane_data_disk_size_gb" {
+  description = "Optional secondary block storage volume size in GB for DigitalOcean control plane nodes."
+  type        = number
+  default     = 0
 }
 
 variable "digitalocean_worker_data_disk_size_gb" {

@@ -1,0 +1,94 @@
+---
+# ==============================================================================
+# Playbook: Automated Online Disk Alignment & Expansion for Hybrid K8s Cluster
+# Works across AWS (NVMe /dev/nvme0n1), GCP (SCSI /dev/sda), and DigitalOcean (/dev/vda)
+# ==============================================================================
+
+- name: Online Disk Alignment and Filesystem Expansion
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: 1. Record disk capacity before expansion
+      ansible.builtin.command: df -h /
+      register: disk_before
+      changed_when: false
+
+    - name: 2. Ensure cloud-guest-utils (growpart) is installed
+      ansible.builtin.apt:
+        name:
+          - cloud-guest-utils
+          - e2fsprogs
+          - gdisk
+        state: present
+        update_cache: false
+
+    - name: 3. Detect root partition and underlying parent block device
+      ansible.builtin.shell: |
+        set -o pipefail
+        ROOT_PART=$(findmnt -n -o SOURCE /)
+        if echo "$ROOT_PART" | grep -q "nvme"; then
+          # AWS NVMe device: /dev/nvme0n1p1 -> parent: /dev/nvme0n1, part: 1
+          PARENT_DEV=$(echo "$ROOT_PART" | sed -E 's/p[0-9]+$//')
+          PART_NUM=$(echo "$ROOT_PART" | grep -o '[0-9]*$')
+        else
+          # Standard SCSI / VirtIO device: /dev/sda1 or /dev/vda1 -> parent: /dev/sda, part: 1
+          PARENT_DEV=$(echo "$ROOT_PART" | sed -E 's/[0-9]+$//')
+          PART_NUM=$(echo "$ROOT_PART" | grep -o '[0-9]*$')
+        fi
+        echo "ROOT_PART=$ROOT_PART"
+        echo "PARENT_DEV=$PARENT_DEV"
+        echo "PART_NUM=$PART_NUM"
+      args:
+        executable: /bin/bash
+      register: detected_device
+      changed_when: false
+
+    - name: 4. Parse detected device details
+      ansible.builtin.set_fact:
+        root_partition: "{{ (detected_device.stdout_lines | select('match', '^ROOT_PART=') | first).split('=')[1] }}"
+        parent_device: "{{ (detected_device.stdout_lines | select('match', '^PARENT_DEV=') | first).split('=')[1] }}"
+        partition_number: "{{ (detected_device.stdout_lines | select('match', '^PART_NUM=') | first).split('=')[1] }}"
+
+    - name: 5. Grow partition to fill expanded block device
+      ansible.builtin.command: "growpart {{ parent_device }} {{ partition_number }}"
+      register: growpart_result
+      changed_when: growpart_result.rc == 0 and 'CHANGED' in growpart_result.stdout
+      failed_when:
+        - growpart_result.rc != 0
+        - "'NOCHANGE' not in growpart_result.stdout"
+        - "'no space in partition table' not in growpart_result.stderr"
+
+    - name: 6. Resize ext4 filesystem online
+      ansible.builtin.command: "resize2fs {{ root_partition }}"
+      register: resize_result
+      changed_when: "'Nothing to do' not in resize_result.stdout"
+      when: ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='fstype') | first == 'ext4'
+
+    - name: 7. Resize xfs filesystem online (if XFS)
+      ansible.builtin.command: xfs_growfs -d /
+      register: xfs_result
+      changed_when: "'data blocks unchanged' not in xfs_result.stdout"
+      when: ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='fstype') | first == 'xfs'
+
+    - name: 8. Signal kubelet to refresh filesystem capacity immediately
+      ansible.builtin.systemd:
+        name: kubelet
+        state: restarted
+      when: growpart_result.changed or (resize_result is defined and resize_result.changed)
+
+    - name: 9. Record disk capacity after expansion
+      ansible.builtin.command: df -h /
+      register: disk_after
+      changed_when: false
+
+    - name: 10. Display Expansion Summary
+      ansible.builtin.debug:
+        msg:
+          - "======================================================================="
+          - "🎉 NODE: {{ inventory_hostname }} ({{ ansible_host | default('N/A') }})"
+          - "• Device: {{ parent_device }} (partition {{ partition_number }})"
+          - "• Before: {{ disk_before.stdout_lines[1] }}"
+          - "• After:  {{ disk_after.stdout_lines[1] }}"
+          - "======================================================================="

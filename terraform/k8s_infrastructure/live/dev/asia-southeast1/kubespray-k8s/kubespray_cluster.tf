@@ -198,31 +198,32 @@ module "aws_kubespray_workers" {
 module "digitalocean_kubespray_cluster" {
   source = "../../../../modules/digitalocean-kubespray-cluster"
 
-  enabled                    = var.enable_digitalocean
-  cluster_name               = var.cluster_name
-  instance_name_prefix       = var.instance_name_prefix
-  control_plane_count        = local.effective_do_control_plane_count
-  control_plane_name_prefix  = var.control_plane_name_prefix
-  control_plane_index_offset = local.effective_gcp_control_plane_count + local.effective_aws_control_plane_count
-  control_plane_sizes        = var.digitalocean_control_plane_sizes
-  worker_count               = local.effective_do_worker_count
-  worker_name_prefix         = var.worker_name_prefix
-  index_offset               = local.effective_gcp_worker_count + local.effective_aws_worker_count
-  region                     = var.digitalocean_region
-  regions                    = var.digitalocean_regions
-  auto_discover_up_regions   = var.digitalocean_auto_discover_up_regions
-  blocked_regions            = var.digitalocean_blocked_regions
-  worker_sizes               = var.digitalocean_worker_sizes
-  fallback_sizes             = var.digitalocean_fallback_sizes
-  blocked_sizes              = var.digitalocean_blocked_sizes
-  random_resource_type       = var.digitalocean_random_resource_type
-  image                      = var.digitalocean_image
-  vpc_uuid                   = var.digitalocean_vpc_uuid
-  allocate_reserved_ips      = var.digitalocean_allocate_reserved_ips
-  worker_data_disk_size_gb   = var.digitalocean_worker_data_disk_size_gb
-  ssh_user                   = var.ssh_user
-  ssh_public_key             = local.ssh_public_key
-  ssh_source_ranges          = var.ssh_source_ranges
+  enabled                         = var.enable_digitalocean
+  cluster_name                    = var.cluster_name
+  instance_name_prefix            = var.instance_name_prefix
+  control_plane_count             = local.effective_do_control_plane_count
+  control_plane_name_prefix       = var.control_plane_name_prefix
+  control_plane_index_offset      = local.effective_gcp_control_plane_count + local.effective_aws_control_plane_count
+  control_plane_sizes             = var.digitalocean_control_plane_sizes
+  worker_count                    = local.effective_do_worker_count
+  worker_name_prefix              = var.worker_name_prefix
+  index_offset                    = local.effective_gcp_worker_count + local.effective_aws_worker_count
+  region                          = var.digitalocean_region
+  regions                         = var.digitalocean_regions
+  auto_discover_up_regions        = var.digitalocean_auto_discover_up_regions
+  blocked_regions                 = var.digitalocean_blocked_regions
+  worker_sizes                    = var.digitalocean_worker_sizes
+  fallback_sizes                  = var.digitalocean_fallback_sizes
+  blocked_sizes                   = var.digitalocean_blocked_sizes
+  random_resource_type            = var.digitalocean_random_resource_type
+  image                           = var.digitalocean_image
+  vpc_uuid                        = var.digitalocean_vpc_uuid
+  allocate_reserved_ips           = var.digitalocean_allocate_reserved_ips
+  control_plane_data_disk_size_gb = var.digitalocean_control_plane_data_disk_size_gb
+  worker_data_disk_size_gb        = var.digitalocean_worker_data_disk_size_gb
+  ssh_user                        = var.ssh_user
+  ssh_public_key                  = local.ssh_public_key
+  ssh_source_ranges               = var.ssh_source_ranges
   cluster_source_ranges = distinct(concat(
     var.internal_source_ranges,
     [for ip in module.gcp_kubespray_cluster.cluster_public_ips : "${ip}/32" if ip != null && ip != ""],

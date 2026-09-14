@@ -149,6 +149,12 @@ variable "allocate_reserved_ips" {
 # ---------------------------------------------------------------------------
 # Concept 5: Storage Architecture (Boot + Optional Secondary Block Storage)
 # ---------------------------------------------------------------------------
+variable "control_plane_data_disk_size_gb" {
+  description = "Optional secondary DigitalOcean Block Storage Volume size in GB for persistent control plane storage. Set to 0 to disable."
+  type        = number
+  default     = 0
+}
+
 variable "worker_data_disk_size_gb" {
   description = "Optional secondary DigitalOcean Block Storage Volume size in GB for persistent worker storage. Set to 0 to disable."
   type        = number

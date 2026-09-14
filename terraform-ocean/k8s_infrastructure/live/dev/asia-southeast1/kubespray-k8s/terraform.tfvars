@@ -65,8 +65,8 @@ random_resource_type = [
 ]
 
 image                           = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
-control_plane_boot_disk_size_gb = 20
-worker_boot_disk_size_gb        = 20
+control_plane_boot_disk_size_gb = 50
+worker_boot_disk_size_gb        = 50
 boot_disk_type                  = "pd-balanced"
 
 network    = "default"
@@ -97,11 +97,12 @@ aws_fallback_machine_types      = ["t3.small", "t3.micro"]
 aws_blocked_machine_types       = []
 aws_random_resource_type        = ["Standard", "High CPU", "High Memory"]
 
-# Storage
-aws_worker_root_disk_size_gb = 30
-aws_worker_root_disk_type    = "gp3"
-aws_worker_data_disk_size_gb = 0 # Set > 0 for optional secondary EBS volume (/dev/sdb)
-aws_worker_data_disk_type    = "gp3"
+# Storage (50 GB for both Master and Worker nodes)
+aws_control_plane_boot_disk_size_gb = 50 # master03 (AWS Master)
+aws_worker_root_disk_size_gb        = 50 # worker01..worker04 (AWS Workers)
+aws_worker_root_disk_type           = "gp3"
+aws_worker_data_disk_size_gb        = 0 # Set > 0 for optional secondary EBS volume (/dev/sdb)
+aws_worker_data_disk_type           = "gp3"
 
 # Networking & IPs
 aws_allocate_elastic_ips = true
@@ -126,11 +127,15 @@ digitalocean_fallback_sizes       = ["s-4vcpu-8gb", "s-2vcpu-2gb", "c-2", "g-2vc
 digitalocean_blocked_sizes        = []
 digitalocean_random_resource_type = ["Standard", "High CPU", "High Memory"]
 
-# Image & Networking
-digitalocean_image                    = "ubuntu-24-04-x64"
-digitalocean_vpc_uuid                 = null
-digitalocean_allocate_reserved_ips    = true
-digitalocean_worker_data_disk_size_gb = 0
+# Networking & Reserved IPs
+digitalocean_image                 = "ubuntu-24-04-x64"
+digitalocean_vpc_uuid              = null
+digitalocean_allocate_reserved_ips = true
+
+# Storage (Optional secondary block storage volumes for Master and Worker nodes)
+# Note: DigitalOcean Droplets already include 80 GB SSD boot disk automatically in size 's-2vcpu-4gb'!
+digitalocean_control_plane_data_disk_size_gb = 0 # Set > 0 for master secondary block storage volume
+digitalocean_worker_data_disk_size_gb        = 0 # Set > 0 for worker secondary block storage volume
 
 # ---------------------------------------------------------------------------
 # Dynamic Multi-Cloud Node Topology (GCP, AWS, and DigitalOcean)
@@ -200,8 +205,9 @@ ansible_python_interpreter   = "/usr/bin/python3"
 ansible_ssh_extra_args       = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o TCPKeepAlive=yes"
 
 # Inventory paths
-kubespray_inventory_path = "../../../../../ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini"
-ansible_inventory_path   = "../../../../../ansible_kubespray_k8s/inventory.ini"
+kubespray_inventory_path     = "../../../../../ansible_kubespray_k8s/kubespray/inventory/sample/inventory.ini"
+ansible_inventory_path       = "../../../../../ansible_kubespray_k8s/inventory.ini"
+increase_disk_inventory_path = "../../../../../increase-disk-alignment/inventory.ini"
 
 # ---------------------------------------------------------------------------
 # Firewall and Security Group Access (Unified Single-List Pattern)

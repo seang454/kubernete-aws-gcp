@@ -19,9 +19,10 @@ aws_region                  = "ap-southeast-1"
 aws_profile                 = ""
 aws_shared_credentials_file = "" # Optional: e.g. "~/.aws/credentials" or custom path
 aws_shared_config_file      = "" # Optional: e.g. "~/.aws/config" or custom path
-aws_worker_instance_types    = ["t3.medium"]
-aws_worker_root_disk_size_gb = 30
-aws_worker_root_disk_type    = "gp3"
+aws_worker_instance_types          = ["t3.medium"]
+aws_control_plane_boot_disk_size_gb = 50
+aws_worker_root_disk_size_gb        = 50
+aws_worker_root_disk_type           = "gp3"
 aws_allocate_elastic_ips     = true
 aws_vpc_cidr                 = "172.31.0.0/16"
 aws_source_dest_check        = false
@@ -33,8 +34,9 @@ digitalocean_worker_count           = 0 # Set to 2 to add 2 worker nodes on Digi
 digitalocean_region                 = "sgp1"
 digitalocean_worker_sizes           = ["s-2vcpu-4gb"]
 digitalocean_fallback_sizes         = ["s-4vcpu-8gb", "c-2"]
-digitalocean_allocate_reserved_ips  = true
-digitalocean_worker_data_disk_size_gb = 0
+digitalocean_allocate_reserved_ips           = true
+digitalocean_control_plane_data_disk_size_gb = 0
+digitalocean_worker_data_disk_size_gb        = 0
 
 
 cluster_name         = "kubespray"
@@ -66,6 +68,9 @@ ansible_user                 = ""
 ansible_ssh_private_key_file = "~/.ssh/id_rsa"
 ansible_python_interpreter   = "/usr/bin/python3"
 ansible_ssh_extra_args       = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+# Inventory paths
+increase_disk_inventory_path = "../../../../../increase-disk-alignment/inventory.ini"
 
 # ---------------------------------------------------------------------------
 # Internal Private Cluster Subnet (WireGuard + Kubernetes Pods + Services)

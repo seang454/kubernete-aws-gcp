@@ -73,3 +73,18 @@ resource "local_file" "wireguard_inventory" {
     ansible_ssh_extra_args       = var.ansible_ssh_extra_args
   })
 }
+
+# Generate the inventory for increase-disk-alignment playbook
+resource "local_file" "increase_disk_inventory" {
+  filename = abspath("${path.module}/${var.increase_disk_inventory_path}")
+
+  content = templatefile("${path.module}/templates/ansible_inventory.tftpl", {
+    control_plane_nodes          = local.active_inventory_control_planes
+    worker_nodes                 = local.active_inventory_workers
+    use_wireguard_ip             = var.use_wireguard_ip
+    ansible_user                 = trimspace(var.ansible_user) != "" ? var.ansible_user : var.ssh_user
+    ansible_ssh_private_key_file = pathexpand(var.ansible_ssh_private_key_file)
+    ansible_python_interpreter   = var.ansible_python_interpreter
+    ansible_ssh_extra_args       = var.ansible_ssh_extra_args
+  })
+}

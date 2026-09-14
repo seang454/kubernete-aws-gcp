@@ -89,7 +89,7 @@ locals {
       machine_type = contains(var.blocked_sizes, var.control_plane_sizes[min(index, length(var.control_plane_sizes) - 1)]) ? (
         length(local.usable_fallback_machines) > 0 ? local.usable_fallback_machines[(index + var.control_plane_index_offset) % length(local.usable_fallback_machines)] : local.default_fallback_machine
       ) : var.control_plane_sizes[min(index, length(var.control_plane_sizes) - 1)]
-      has_secondary_disk = false
+      has_secondary_disk = var.control_plane_data_disk_size_gb > 0
     }
   ] : []
 
@@ -213,7 +213,7 @@ resource "digitalocean_volume" "data" {
 
   region                  = each.value.zone
   name                    = "${each.value.instance_name}-data"
-  size                    = var.worker_data_disk_size_gb
+  size                    = each.value.role == "control_plane" ? var.control_plane_data_disk_size_gb : var.worker_data_disk_size_gb
   initial_filesystem_type = var.worker_data_disk_filesystem
   description             = "Secondary block storage for ${each.value.instance_name}"
 }
