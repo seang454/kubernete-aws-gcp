@@ -196,9 +196,11 @@ resource "digitalocean_droplet" "this" {
 
   lifecycle {
     ignore_changes = [
-      image
+      image,
+      user_data,
     ]
   }
+
 
   depends_on = [terraform_data.preflight]
 }

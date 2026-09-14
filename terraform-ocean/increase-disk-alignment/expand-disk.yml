@@ -15,7 +15,13 @@
       register: disk_before
       changed_when: false
 
-    - name: 2. Ensure cloud-guest-utils (growpart) is installed
+    - name: 2. Check if growpart is installed
+      ansible.builtin.command: which growpart
+      register: growpart_installed
+      failed_when: false
+      changed_when: false
+
+    - name: 3. Ensure cloud-guest-utils is installed (if missing)
       ansible.builtin.apt:
         name:
           - cloud-guest-utils
@@ -23,6 +29,8 @@
           - gdisk
         state: present
         update_cache: false
+      when: growpart_installed.rc != 0
+
 
     - name: 3. Detect root partition and underlying parent block device
       ansible.builtin.shell: |
@@ -72,18 +80,27 @@
       changed_when: "'data blocks unchanged' not in xfs_result.stdout"
       when: ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='fstype') | first == 'xfs'
 
-    - name: 8. Signal kubelet to refresh filesystem capacity immediately
+    - name: 8. Check if kubelet service is present
+      ansible.builtin.command: systemctl list-unit-files kubelet.service
+      register: kubelet_check
+      changed_when: false
+      failed_when: false
+
+    - name: 9. Signal kubelet to refresh filesystem capacity immediately
       ansible.builtin.systemd:
         name: kubelet
         state: restarted
-      when: growpart_result.changed or (resize_result is defined and resize_result.changed)
+      when:
+        - (growpart_result.changed or (resize_result is defined and resize_result.changed))
+        - "'kubelet.service' in kubelet_check.stdout"
+      failed_when: false
 
-    - name: 9. Record disk capacity after expansion
+    - name: 10. Record disk capacity after expansion
       ansible.builtin.command: df -h /
       register: disk_after
       changed_when: false
 
-    - name: 10. Display Expansion Summary
+    - name: 11. Display Expansion Summary
       ansible.builtin.debug:
         msg:
           - "======================================================================="
@@ -92,3 +109,4 @@
           - "• Before: {{ disk_before.stdout_lines[1] }}"
           - "• After:  {{ disk_after.stdout_lines[1] }}"
           - "======================================================================="
+

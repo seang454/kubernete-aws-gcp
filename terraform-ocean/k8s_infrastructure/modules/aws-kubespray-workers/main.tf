@@ -426,9 +426,11 @@ resource "aws_instance" "this" {
 
   lifecycle {
     ignore_changes = [
-      ami
+      ami,
+      user_data,
     ]
   }
+
 
   depends_on = [terraform_data.preflight]
 }

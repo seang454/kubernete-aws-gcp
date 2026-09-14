@@ -273,6 +273,13 @@ resource "google_compute_instance" "this" {
     cluster = var.cluster_name
     role    = each.value.role
   })
+
+  lifecycle {
+    ignore_changes = [
+      boot_disk[0].initialize_params[0].size,
+      boot_disk[0].initialize_params[0].image,
+    ]
+  }
 }
 
 resource "google_compute_firewall" "ssh" {
