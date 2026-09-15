@@ -68,7 +68,7 @@ local_volume_provisioner_enabled: false
 gateway_api_enabled: false
 
 # Nginx ingress controller deployment
-ingress_nginx_enabled: true
+ingress_nginx_enabled: false
 # ingress_nginx_host_network: false
 # ingress_nginx_service_type: LoadBalancer
 # ingress_nginx_service_annotations:
