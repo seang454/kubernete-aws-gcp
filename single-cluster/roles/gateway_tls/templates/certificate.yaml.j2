@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: traefik-wildcard-cert
+  namespace: {{ traefik_namespace | default('traefik') }}
+spec:
+  secretName: traefik-gateway-tls
+  issuerRef:
+    name: {{ cloudflare_cluster_issuer_name | default('letsencrypt-cloudflare') }}
+    kind: ClusterIssuer
+  dnsNames:
+    - "{{ base_domain | default('seang.shop') }}"
+    - "*.{{ base_domain | default('seang.shop') }}"

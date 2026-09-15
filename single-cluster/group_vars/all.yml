@@ -40,6 +40,7 @@ enable_ingress: false            # Set true when DNS records point to ingress co
 enable_tls: false                # Set true to generate Let's Encrypt TLS certs
 
 grafana_domain: "grafana.seang.shop"
+opensearch_domain: "opensearch.seang.shop"
 jaeger_domain: "jaeger.seang.shop"
 alertmanager_domain: "alertmanager.seang.shop"
 prometheus_domain: "prometheus.seang.shop"
@@ -316,3 +317,53 @@ schema_registry_url: "http://{{ schema_registry_service_name }}.{{ kafka_namespa
 
 # Debezium Connect REST API URL
 debezium_connect_url: "http://{{ debezium_service_name }}.{{ kafka_namespace }}.svc.cluster.local:{{ debezium_port }}"
+
+# ------------------------------------------------------------------------------
+# 16. ROLE: GATEWAY API, CERT-MANAGER & CLOUDFLARE TUNNEL (`roles/gateway_tls`)
+# ------------------------------------------------------------------------------
+enable_gateway_tls: true
+
+# Base Domain & Route Toggles
+base_domain: "seang.shop"
+enable_grafana_route: true
+enable_opensearch_route: true
+
+# Traefik Gateway & Namespaces
+traefik_gateway_name: "traefik-gateway"
+traefik_namespace: "traefik"
+cert_manager_namespace: "cert-manager"
+grafana_backend_service: "prometheus-grafana"
+grafana_backend_port: 80
+opensearch_dashboards_service_name: "opensearch-dashboards"
+
+# ------------------------------------------------------------------------------
+# STEP 1 (MANUAL): CERT-MANAGER DNS-01 API TOKEN
+# ------------------------------------------------------------------------------
+# In Cloudflare Dashboard -> My Profile -> API Tokens -> Create Token -> Custom Token:
+#   - Permissions: Zone > DNS > Edit, Zone > Zone > Read
+#   - Resources: Include > Specific zone > seang.shop
+# Paste your generated token here:
+cloudflare_cluster_issuer_name: "letsencrypt-cloudflare"
+cloudflare_api_token: ""
+
+# ------------------------------------------------------------------------------
+# STEP 2 (MANUAL): CLOUDFLARE TUNNEL (cloudflared in Kubernetes)
+# ------------------------------------------------------------------------------
+# Choose tunnel mode:
+#   - "token"       : Dashboard-managed (Requires Cloudflare Zero Trust tunnel token)
+#   - "credentials" : CLI-managed (NO credit card needed, uses tunnel ID + JSON)
+cloudflare_tunnel_mode: "token"
+cloudflare_tunnel_replicas: 2
+cloudflare_tunnel_image: "cloudflare/cloudflared:latest"
+
+# Option A: If using cloudflare_tunnel_mode: "token" (Dashboard-Managed)
+# In Cloudflare Zero Trust Dashboard -> Networks -> Tunnels -> Create a tunnel:
+# Copy the tunnel token and paste below:
+cloudflare_tunnel_token: ""
+
+# Option B: If using cloudflare_tunnel_mode: "credentials" (CLI-Managed, No Credit Card)
+# Run 'cloudflared tunnel create k8s-tunnel' on your terminal
+# Paste the generated UUID and credentials JSON below:
+cloudflare_tunnel_id: ""
+cloudflare_tunnel_credentials_json: ""
+

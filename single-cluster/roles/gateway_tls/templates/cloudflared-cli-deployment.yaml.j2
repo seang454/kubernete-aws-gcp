@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: {{ traefik_namespace | default('traefik') }}
+  labels:
+    app: cloudflared
+    app.kubernetes.io/name: cloudflared
+spec:
+  replicas: {{ cloudflare_tunnel_replicas | default(2) }}
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+        app.kubernetes.io/name: cloudflared
+    spec:
+      containers:
+        - name: cloudflared
+          image: {{ cloudflare_tunnel_image | default('cloudflare/cloudflared:latest') }}
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config/config.yaml
+            - run
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config
+              readOnly: true
+            - name: creds
+              mountPath: /etc/cloudflared/creds
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflared-config
+        - name: creds
+          secret:
+            secretName: cloudflared-credentials

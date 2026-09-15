@@ -154,6 +154,52 @@
         fail_msg: "Kafka UI pod is not running in {{ kafka_namespace | default('kafka') }}"
       when: enable_kafka_ui | default(false)
 
+    - name: Verify Grafana Gateway API HTTPRoute
+      kubernetes.core.k8s_info:
+        api_version: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+        name: grafana-httproute
+      register: grafana_httproute
+      when:
+        - enable_gateway_tls | default(true)
+        - enable_grafana_route | default(true)
+        - enable_prometheus_stack | default(true)
+
+    - name: Assert Grafana HTTPRoute Exists
+      ansible.builtin.assert:
+        that:
+          - grafana_httproute.resources | length > 0
+        fail_msg: "Grafana HTTPRoute was not found in namespace {{ k8s_monitoring_namespace | default('monitoring') }}"
+      when:
+        - enable_gateway_tls | default(true)
+        - enable_grafana_route | default(true)
+        - enable_prometheus_stack | default(true)
+
+    - name: Verify OpenSearch Dashboards Gateway API HTTPRoute
+      kubernetes.core.k8s_info:
+        api_version: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        namespace: "{{ opensearch_namespace | default('opensearch') }}"
+        name: opensearch-dashboards-httproute
+      register: os_httproute
+      when:
+        - enable_gateway_tls | default(true)
+        - enable_opensearch_route | default(true)
+        - enable_opensearch | default(true)
+        - enable_opensearch_dashboards | default(true)
+
+    - name: Assert OpenSearch Dashboards HTTPRoute Exists
+      ansible.builtin.assert:
+        that:
+          - os_httproute.resources | length > 0
+        fail_msg: "OpenSearch Dashboards HTTPRoute was not found in namespace {{ opensearch_namespace | default('opensearch') }}"
+      when:
+        - enable_gateway_tls | default(true)
+        - enable_opensearch_route | default(true)
+        - enable_opensearch | default(true)
+        - enable_opensearch_dashboards | default(true)
+
     - name: Display Final Verification Summary
       ansible.builtin.debug:
         msg:
@@ -168,4 +214,5 @@
           - "• Database CDC: Debezium Kafka Connect ({{ 'Enabled' if (enable_debezium | default(false)) else 'Disabled' }})"
           - "• Kafka UI: Provectus Kafka UI Dashboard ({{ 'Enabled' if (enable_kafka_ui | default(false)) else 'Disabled' }})"
           - "• Visualization UIs: Grafana & OpenSearch Dashboards"
+          - "• HTTPS Gateway: Traefik Gateway API HTTPRoutes (Grafana & OpenSearch)"
           - "======================================================================="

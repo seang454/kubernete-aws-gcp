@@ -27,5 +27,8 @@
     # 4. Visualization & Dashboards
     - { role: grafana_dashboards, when: enable_grafana_dashboards | default(true) }
 
+    # 5. HTTPS Gateway API & Cloudflare Tunnel (Last Stage)
+    - { role: gateway_tls, when: enable_gateway_tls | default(true) }
+
 - name: Automatically Verify All Services & Health
   import_playbook: verify.yml

@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared-config
+  namespace: {{ traefik_namespace | default('traefik') }}
+data:
+  config.yaml: |
+    tunnel: {{ cloudflare_tunnel_id }}
+    credentials-file: /etc/cloudflared/creds/credentials.json
+    metrics: 0.0.0.0:2000
+    no-autoupdate: true
+
+    ingress:
+      # Grafana Dashboard route
+      - hostname: "{{ grafana_domain | default('grafana.seang.shop') }}"
+        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.cluster.local:443
+        originRequest:
+          originServerName: "{{ base_domain | default('seang.shop') }}"
+
+      # OpenSearch Dashboard route
+      - hostname: "{{ opensearch_domain | default('opensearch.seang.shop') }}"
+        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.cluster.local:443
+        originRequest:
+          originServerName: "{{ base_domain | default('seang.shop') }}"
+
+      # Wildcard catch-all for remaining cluster services
+      - hostname: "*.{{ base_domain | default('seang.shop') }}"
+        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.cluster.local:443
+        originRequest:
+          originServerName: "{{ base_domain | default('seang.shop') }}"
+
+      # Apex domain
+      - hostname: "{{ base_domain | default('seang.shop') }}"
+        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.cluster.local:443
+        originRequest:
+          originServerName: "{{ base_domain | default('seang.shop') }}"
+
+      # Mandatory catch-all 404 rule
+      - service: http_status:404

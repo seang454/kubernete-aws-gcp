@@ -1,0 +1,230 @@
+---
+# ==============================================================================
+# tasks file for gateway_tls
+# Configures Traefik Gateway API v1 HTTPRoutes, cert-manager DNS-01 Let's Encrypt TLS,
+# and Cloudflare Tunnel for Grafana & OpenSearch Dashboards
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. EVALUATE CREDENTIALS & TOKENS
+# ------------------------------------------------------------------------------
+- name: Determine whether Cloudflare API Token is configured
+  ansible.builtin.set_fact:
+    has_cf_api_token: >-
+      {{
+        (cloudflare_api_token is defined) and
+        (cloudflare_api_token | trim | length > 0) and
+        (cloudflare_api_token != 'CHANGE_ME')
+      }}
+
+- name: Determine whether Cloudflare Tunnel Token is configured
+  ansible.builtin.set_fact:
+    has_cf_tunnel_token: >-
+      {{
+        (cloudflare_tunnel_token is defined) and
+        (cloudflare_tunnel_token | trim | length > 0) and
+        (cloudflare_tunnel_token != 'CHANGE_ME')
+      }}
+
+- name: Determine whether Cloudflare CLI Tunnel Credentials are configured
+  ansible.builtin.set_fact:
+    has_cf_tunnel_creds: >-
+      {{
+        (cloudflare_tunnel_id is defined) and
+        (cloudflare_tunnel_id | trim | length > 0) and
+        (cloudflare_tunnel_id != 'CHANGE_ME') and
+        (cloudflare_tunnel_credentials_json is defined) and
+        (cloudflare_tunnel_credentials_json | trim | length > 0) and
+        (cloudflare_tunnel_credentials_json != 'CHANGE_ME')
+      }}
+
+# ------------------------------------------------------------------------------
+# 2. CERT-MANAGER DNS-01 (LET'S ENCRYPT WILDCARD TLS)
+# ------------------------------------------------------------------------------
+- name: Display Notice when Cloudflare API Token is not yet configured
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "ℹ️  CLOUDFLARE API TOKEN NOT CONFIGURED"
+      - "Variable 'cloudflare_api_token' in group_vars/all.yml is empty."
+      - "Skipping cert-manager Cloudflare DNS-01 ClusterIssuer and Wildcard Certificate."
+      - "--------------------------------------------------------------------------------"
+      - "To enable automatic Zero-Trust HTTPS with Let's Encrypt:"
+      - "  1. In Cloudflare Dashboard -> My Profile -> API Tokens -> Create Custom Token:"
+      - "     • Permissions: Zone > DNS > Edit, Zone > Zone > Read"
+      - "     • Resources: Specific zone > {{ base_domain | default('seang.shop') }}"
+      - "  2. Fill 'cloudflare_api_token' in group_vars/all.yml and re-run playbook."
+      - "================================================================================"
+  when: not has_cf_api_token
+
+- name: Ensure cert-manager namespace exists
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ cert_manager_namespace | default('cert-manager') }}"
+    state: present
+  when: has_cf_api_token
+
+- name: Deploy Cloudflare API Token Secret in cert-manager namespace
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'cloudflare-api-token-secret.yaml.j2') | from_yaml }}"
+    state: present
+  when: has_cf_api_token
+
+- name: Deploy Let's Encrypt Cloudflare DNS-01 ClusterIssuer
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'cluster-issuer.yaml.j2') | from_yaml }}"
+    state: present
+  when: has_cf_api_token
+
+- name: Remove stale default self-signed Certificate if present
+  kubernetes.core.k8s:
+    api_version: cert-manager.io/v1
+    kind: Certificate
+    name: traefik-gateway-cert
+    namespace: "{{ traefik_namespace | default('traefik') }}"
+    state: absent
+  when: has_cf_api_token
+  ignore_errors: true
+
+- name: Deploy Wildcard Let's Encrypt Certificate for Traefik Gateway
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'certificate.yaml.j2') | from_yaml }}"
+    state: present
+  when: has_cf_api_token
+
+# ------------------------------------------------------------------------------
+# 3. GATEWAY API HTTPROUTES (GRAFANA & OPENSEARCH DASHBOARDS)
+# ------------------------------------------------------------------------------
+- name: Ensure monitoring namespace exists for Grafana HTTPRoute
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+    state: present
+  when:
+    - enable_grafana_route | default(true)
+    - enable_prometheus_stack | default(true)
+
+- name: Deploy Gateway API HTTPRoute for Grafana
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'grafana-httproute.yaml.j2') | from_yaml }}"
+    state: present
+  when:
+    - enable_grafana_route | default(true)
+    - enable_prometheus_stack | default(true)
+
+- name: Ensure opensearch namespace exists for OpenSearch Dashboards HTTPRoute
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ opensearch_namespace | default('opensearch') }}"
+    state: present
+  when:
+    - enable_opensearch_route | default(true)
+    - enable_opensearch | default(true)
+    - enable_opensearch_dashboards | default(true)
+
+- name: Deploy Gateway API HTTPRoute for OpenSearch Dashboards
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'opensearch-httproute.yaml.j2') | from_yaml }}"
+    state: present
+  when:
+    - enable_opensearch_route | default(true)
+    - enable_opensearch | default(true)
+    - enable_opensearch_dashboards | default(true)
+
+# ------------------------------------------------------------------------------
+# 4. CLOUDFLARE TUNNEL (CLOUDFLARED)
+# ------------------------------------------------------------------------------
+- name: Display Notice when Cloudflare Tunnel credentials are not yet configured
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "ℹ️  CLOUDFLARE TUNNEL NOT YET CONFIGURED"
+      - "Mode selected: '{{ cloudflare_tunnel_mode | default('token') }}'."
+      - "Skipping cloudflared deployment in namespace {{ traefik_namespace | default('traefik') }}."
+      - "--------------------------------------------------------------------------------"
+      - "To deploy the Cloudflare Tunnel inside Kubernetes:"
+      - "  • If using mode 'token': Fill 'cloudflare_tunnel_token' in group_vars/all.yml."
+      - "  • If using mode 'credentials': Fill 'cloudflare_tunnel_id' &"
+      - "    'cloudflare_tunnel_credentials_json' in group_vars/all.yml."
+      - "================================================================================"
+  when: >-
+    ((cloudflare_tunnel_mode | default('token')) == 'token' and not has_cf_tunnel_token) or
+    ((cloudflare_tunnel_mode | default('token')) == 'credentials' and not has_cf_tunnel_creds)
+
+# Mode: token (Dashboard-Managed)
+- name: "Deploy Cloudflare Tunnel Secret (Mode: token)"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: cloudflare-tunnel-token
+        namespace: "{{ traefik_namespace | default('traefik') }}"
+      type: Opaque
+      stringData:
+        token: "{{ cloudflare_tunnel_token }}"
+    state: present
+  when:
+    - (cloudflare_tunnel_mode | default('token')) == 'token'
+    - has_cf_tunnel_token
+
+- name: "Deploy cloudflared Deployment (Mode: token)"
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'cloudflared-token-deployment.yaml.j2') | from_yaml }}"
+    state: present
+  when:
+    - (cloudflare_tunnel_mode | default('token')) == 'token'
+    - has_cf_tunnel_token
+
+# Mode: credentials (CLI-Managed, No Credit Card)
+- name: "Deploy Cloudflare Tunnel Credentials Secret (Mode: credentials)"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: cloudflared-credentials
+        namespace: "{{ traefik_namespace | default('traefik') }}"
+      type: Opaque
+      stringData:
+        credentials.json: "{{ cloudflare_tunnel_credentials_json }}"
+    state: present
+  when:
+    - (cloudflare_tunnel_mode | default('token')) == 'credentials'
+    - has_cf_tunnel_creds
+
+- name: "Deploy Cloudflare Tunnel ConfigMap (Mode: credentials)"
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'cloudflared-cli-config.yaml.j2') | from_yaml }}"
+    state: present
+  when:
+    - (cloudflare_tunnel_mode | default('token')) == 'credentials'
+    - has_cf_tunnel_creds
+
+- name: "Deploy cloudflared Deployment (Mode: credentials)"
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'cloudflared-cli-deployment.yaml.j2') | from_yaml }}"
+    state: present
+  when:
+    - (cloudflare_tunnel_mode | default('token')) == 'credentials'
+    - has_cf_tunnel_creds
+
+# ------------------------------------------------------------------------------
+# 5. POST-DEPLOYMENT SUMMARY
+# ------------------------------------------------------------------------------
+- name: Display Gateway API & HTTPS Configuration Status
+  ansible.builtin.debug:
+    msg:
+      - "================================================================================"
+      - "🌐 GATEWAY API & CLOUDFLARE HTTPS CONFIGURATION SUMMARY"
+      - "• Gateway Class: traefik"
+      - "• Gateway Name:  {{ traefik_gateway_name | default('traefik-gateway') }} (Namespace: {{ traefik_namespace | default('traefik') }})"
+      - "• TLS Secret:    traefik-gateway-tls (*.{{ base_domain | default('seang.shop') }})"
+      - "• Grafana URL:   https://{{ grafana_domain | default('grafana.seang.shop') }}"
+      - "• OpenSearch URL:https://{{ opensearch_domain | default('opensearch.seang.shop') }}"
+      - "• DNS-01 Issuer: {{ 'Active (' + (cloudflare_cluster_issuer_name | default('letsencrypt-cloudflare')) + ')' if has_cf_api_token else 'Pending (set cloudflare_api_token in group_vars/all.yml)' }}"
+      - "• Tunnel Pods:   {{ 'Active (' + (cloudflare_tunnel_mode | default('token')) + ' mode)' if (has_cf_tunnel_token or has_cf_tunnel_creds) else 'Pending (set cloudflare_tunnel_* in group_vars/all.yml)' }}"
+      - "================================================================================"

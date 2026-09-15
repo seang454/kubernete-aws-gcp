@@ -2,7 +2,7 @@
 
 This Ansible project automates the deployment, verification, and teardown of the complete cloud-native observability stack for Kubernetes, covering **Metrics**, **Logs**, and **Distributed Traces**.
 
-For complete architecture diagrams and deep-dive explanations, see the [Observability Architecture Guide](./observability-architecture-guide.md) and the [Centralized Logging Tools Guide (ELK vs. OpenSearch vs. Graylog vs. Loki)](./logging-tools-guide.md).
+For complete architecture diagrams and deep-dive explanations, see the [Observability Architecture Guide](./observability-architecture-guide.md), the [Zero-Trust HTTPS & Gateway API Guide](./zero-trust-https-gateway-guide.md), and the [Centralized Logging Tools Guide (ELK vs. OpenSearch vs. Graylog vs. Loki)](./logging-tools-guide.md).
 
 ---
 
@@ -174,8 +174,9 @@ observ-monitory/
 │   ├── alloy/                           # Role 7: Universal Telemetry Shipper (Grafana Alloy DaemonSet)
 │   ├── opentelemetry/                   # Role 8: Telemetry Pipeline Router (Standalone OTel Collector)
 │   ├── grafana_dashboards/              # Role 9: Curated Visual Dashboards
-│   ├── host_observability/              # Role 10: Non-K8s External Host Exporters (Alloy + Node Exporter)
-│   └── ceph_observability/              # Role 11: External Ceph Cluster Exporter
+│   ├── gateway_tls/                     # Role 10: HTTPS Gateway API, cert-manager DNS-01 & Cloudflare Tunnel
+│   ├── host_observability/              # Role 11: Non-K8s External Host Exporters (Alloy + Node Exporter)
+│   └── ceph_observability/              # Role 12: External Ceph Cluster Exporter
 └── observability-architecture-guide.md
 ```
 
@@ -306,7 +307,18 @@ observ-monitory/
 
 ---
 
-### 12. `roles/host_observability` (OUTSIDE Kubernetes — Standalone VMs)
+### 12. `roles/gateway_tls` (Inside Kubernetes — Last Stage)
+* **What it installs:**
+  * **cert-manager DNS-01 Issuer**: Deploys `ClusterIssuer` for Let's Encrypt using Cloudflare DNS-01 challenge solver (no exposed port 80 needed).
+  * **Wildcard TLS Certificate**: Requests `*.seang.shop` & `seang.shop` TLS cert, auto-stored in `traefik-gateway-tls`.
+  * **Traefik Gateway API v1 HTTPRoutes**: Deploys `HTTPRoute` for Grafana (`grafana.seang.shop`) in `monitoring` namespace and `HTTPRoute` for OpenSearch Dashboards (`opensearch.seang.shop`) in `opensearch` namespace.
+  * **Cloudflare Tunnel (`cloudflared`)**: Runs inside the cluster, connecting the public Cloudflare edge directly to Traefik Gateway over strict end-to-end TLS. Supports both Token mode (Zero Trust UI) and Credentials mode (CLI, no credit card).
+* **Deployment Method:** Kubernetes Gateway API v1 & cert-manager CRDs, plus Cloudflare Tunnel Deployment.
+* **When to use:** Secures and exposes Grafana and OpenSearch Dashboards via HTTPS with valid Let's Encrypt certificates.
+
+---
+
+### 13. `roles/host_observability` (OUTSIDE Kubernetes — Standalone VMs)
 * **What it installs:**
   * **prometheus-node-exporter**: Installs Node Exporter via `apt` as a Linux background `systemd` service on port `9100`.
   * **Grafana Alloy**: Installs Alloy via `apt` as a Linux background `systemd` service to tail `/var/log/syslog` on the host VM and stream logs into Loki.
@@ -315,7 +327,7 @@ observ-monitory/
 
 ---
 
-### 13. `roles/ceph_observability` (OUTSIDE Kubernetes — Ceph Storage)
+### 14. `roles/ceph_observability` (OUTSIDE Kubernetes — Ceph Storage)
 * **What it installs:**
   * Enables the Ceph Manager Prometheus exporter module (`ceph mgr module enable prometheus`) on port `9283`.
 * **Deployment Method:** Ceph administrative CLI commands.
@@ -338,9 +350,10 @@ observ-monitory/
 | **9. Jaeger** | `jaeger` | `Deployment` Pod + Service (Tracing UI) | ✅ **YES** |
 | **10. OpenTelemetry Collector** | `opentelemetry` / `alloy` | Built into Alloy or standalone Deployment | ✅ **YES** |
 | **11. OpenSearch & Dashboards** | `opensearch` | StatefulSet + Dashboards Deployment | ✅ **YES** |
-| **12. Kafka KRaft Cluster** | `kafka` | 3-Node StatefulSet cluster | 🟡 Optional toggle |
-| **13. Debezium & Schema Registry** | `debezium`, `schema_registry` | CDC Connect + Avro Registry Deployments | 🟡 Optional toggle |
-| **14. Kafka UI** | `kafka_ui` | Web Management Console Deployment | 🟡 Optional toggle |
+| **12. HTTPS Gateway & TLS** | `gateway_tls` | Traefik Gateway API v1 + cert-manager + cloudflared | ✅ **YES** |
+| **13. Kafka KRaft Cluster** | `kafka` | 3-Node StatefulSet cluster | 🟡 Optional toggle |
+| **14. Debezium & Schema Registry** | `debezium`, `schema_registry` | CDC Connect + Avro Registry Deployments | 🟡 Optional toggle |
+| **15. Kafka UI** | `kafka_ui` | Web Management Console Deployment | 🟡 Optional toggle |
 
 ---
 

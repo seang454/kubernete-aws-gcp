@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: {{ traefik_namespace | default('traefik') }}
+  labels:
+    app: cloudflared
+    app.kubernetes.io/name: cloudflared
+spec:
+  replicas: {{ cloudflare_tunnel_replicas | default(2) }}
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+        app.kubernetes.io/name: cloudflared
+    spec:
+      containers:
+        - name: cloudflared
+          image: {{ cloudflare_tunnel_image | default('cloudflare/cloudflared:latest') }}
+          args:
+            - tunnel
+            - --no-autoupdate
+            - run
+            - --token
+            - $(TUNNEL_TOKEN)
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflare-tunnel-token
+                  key: token
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

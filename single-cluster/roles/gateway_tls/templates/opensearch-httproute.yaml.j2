@@ -1,0 +1,22 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: opensearch-dashboards-httproute
+  namespace: {{ opensearch_namespace | default('opensearch') }}
+  labels:
+    app.kubernetes.io/name: opensearch-dashboards
+    app.kubernetes.io/part-of: opensearch
+spec:
+  parentRefs:
+    - name: {{ traefik_gateway_name | default('traefik-gateway') }}
+      namespace: {{ traefik_namespace | default('traefik') }}
+  hostnames:
+    - "{{ opensearch_domain | default('opensearch.seang.shop') }}"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ opensearch_dashboards_service_name | default('opensearch-dashboards') }}
+          port: {{ opensearch_dashboards_port | default(5601) }}
