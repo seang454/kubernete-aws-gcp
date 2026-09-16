@@ -1,0 +1,111 @@
+{% if pyroscope_storage.enabled | default(true) %}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ pyroscope_service_name | default('pyroscope') }}-data
+  namespace: "{{ k8s_monitoring_namespace }}"
+  labels:
+    app.kubernetes.io/name: {{ pyroscope_service_name | default('pyroscope') }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: "{{ pyroscope_storage.storage_class | default(default_storage_class) }}"
+  resources:
+    requests:
+      storage: "{{ pyroscope_storage.size | default('5Gi') }}"
+---
+{% endif %}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ pyroscope_service_name | default('pyroscope') }}
+  namespace: "{{ k8s_monitoring_namespace }}"
+  labels:
+    app.kubernetes.io/name: {{ pyroscope_service_name | default('pyroscope') }}
+spec:
+  replicas: {{ pyroscope_replicas | default(1) }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ pyroscope_service_name | default('pyroscope') }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ pyroscope_service_name | default('pyroscope') }}
+    spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsNonRoot: true
+{% if pyroscope_node_selector is defined %}
+      nodeSelector:
+{% for key, value in pyroscope_node_selector.items() %}
+        {{ key }}: "{{ value }}"
+{% endfor %}
+{% endif %}
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: pyroscope
+          image: {{ pyroscope_image | default('grafana/pyroscope:2.3.1') }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-target=all"
+            - "-server.http-listen-port={{ pyroscope_port | default(4040) }}"
+            - "-storage.backend=filesystem"
+            - "-storage.filesystem.dir=/var/lib/pyroscope"
+          ports:
+            - name: http-api
+              containerPort: {{ pyroscope_port | default(4040) }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http-api
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http-api
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: {{ (pyroscope_resources.requests.cpu if (pyroscope_resources is defined and pyroscope_resources.requests is defined) else '10m') }}
+              memory: {{ (pyroscope_resources.requests.memory if (pyroscope_resources is defined and pyroscope_resources.requests is defined) else '128Mi') }}
+            limits:
+              cpu: {{ (pyroscope_resources.limits.cpu if (pyroscope_resources is defined and pyroscope_resources.limits is defined) else '500m') }}
+              memory: {{ (pyroscope_resources.limits.memory if (pyroscope_resources is defined and pyroscope_resources.limits is defined) else '512Mi') }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pyroscope
+      volumes:
+        - name: data
+{% if pyroscope_storage.enabled | default(true) %}
+          persistentVolumeClaim:
+            claimName: {{ pyroscope_service_name | default('pyroscope') }}-data
+{% else %}
+          emptyDir: {}
+{% endif %}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ pyroscope_service_name | default('pyroscope') }}
+  namespace: "{{ k8s_monitoring_namespace }}"
+  labels:
+    app.kubernetes.io/name: {{ pyroscope_service_name | default('pyroscope') }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ pyroscope_service_name | default('pyroscope') }}
+  ports:
+    - name: http-api
+      port: {{ pyroscope_port | default(4040) }}
+      targetPort: http-api

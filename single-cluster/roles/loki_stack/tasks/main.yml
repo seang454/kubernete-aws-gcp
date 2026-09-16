@@ -6,6 +6,11 @@
     name: grafana
     repo_url: https://grafana.github.io/helm-charts
 
+- name: Deploy Loki 3.x Configuration Secret
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'loki-config.yaml.j2') | from_yaml }}"
+    state: present
+
 - name: Render Loki Values File
   ansible.builtin.template:
     src: loki-values.yaml.j2

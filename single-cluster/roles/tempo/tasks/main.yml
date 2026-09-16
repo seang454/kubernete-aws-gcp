@@ -1,0 +1,43 @@
+---
+# tasks file for tempo (Distributed Tracing Engine)
+
+- name: Ensure monitoring namespace exists
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+    state: present
+
+- name: Deploy Grafana Tempo Server
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'tempo-deployment.yaml.j2') | from_yaml_all | list }}"
+    state: present
+  register: tempo_deploy
+
+- name: Restart Tempo deployment if configuration changed
+  ansible.builtin.command:
+    cmd: kubectl rollout restart deployment/{{ tempo_service_name | default('tempo') }} -n {{ k8s_monitoring_namespace | default('monitoring') }}
+  when: tempo_deploy.changed
+
+- name: Wait for Tempo Rollout to Complete
+  ansible.builtin.command:
+    cmd: kubectl rollout status deployment/{{ tempo_service_name | default('tempo') }} -n {{ k8s_monitoring_namespace | default('monitoring') }} --timeout=120s
+  when: tempo_deploy.changed
+
+- name: Register Tempo as a Grafana Datasource
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'tempo-datasource.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Wait for Tempo Pod to be Ready
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+    label_selectors:
+      - "app.kubernetes.io/name={{ tempo_service_name | default('tempo') }}"
+  register: tempo_pod
+  until: >
+    tempo_pod.resources | length > 0 and
+    (tempo_pod.resources[0].status.containerStatuses[0].ready | default(false))
+  retries: 40
+  delay: 5

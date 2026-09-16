@@ -90,7 +90,8 @@ enable_cadvisor: true
 # ------------------------------------------------------------------------------
 loki_service_name: "loki"
 loki_service_port: 3100
-loki_max_lines: 1000
+loki_image_tag: "3.3.0"
+loki_max_lines: 5000
 loki_retention_deletes_enabled: true
 
 loki_storage:
@@ -121,6 +122,54 @@ jaeger_resources:
   limits:
     cpu: "500m"
     memory: "1Gi"
+
+# ------------------------------------------------------------------------------
+# 7b. ROLE: GRAFANA PYROSCOPE CONTINUOUS PROFILING (`roles/pyroscope`)
+# ------------------------------------------------------------------------------
+enable_pyroscope: true
+pyroscope_service_name: "pyroscope"
+pyroscope_image: "grafana/pyroscope:2.3.1"
+pyroscope_replicas: 1
+pyroscope_port: 4040
+pyroscope_node_selector:
+  kubernetes.io/hostname: master02
+pyroscope_resources:
+  requests:
+    cpu: "10m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+pyroscope_storage:
+  enabled: true
+  storage_class: "{{ default_storage_class }}"
+  size: "5Gi"
+
+# ------------------------------------------------------------------------------
+# 7c. ROLE: GRAFANA TEMPO DISTRIBUTED TRACING (`roles/tempo`)
+# ------------------------------------------------------------------------------
+enable_tempo: true
+tempo_service_name: "tempo"
+tempo_image: "grafana/tempo:2.6.1"
+tempo_replicas: 1
+tempo_http_port: 3200
+tempo_otlp_grpc_port: 4317
+tempo_otlp_http_port: 4318
+tempo_grpc_port: 9095
+tempo_retention: "48h"
+tempo_node_selector:
+  kubernetes.io/hostname: master02
+tempo_resources:
+  requests:
+    cpu: "20m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+tempo_storage:
+  enabled: true
+  storage_class: "{{ default_storage_class }}"
+  size: "5Gi"
 
 # ------------------------------------------------------------------------------
 # 8. ROLE: GRAFANA ALLOY UNIVERSAL SHIPPER (`roles/alloy`)
@@ -309,6 +358,13 @@ jaeger_query_url: "http://{{ jaeger_service_name }}.{{ k8s_monitoring_namespace 
 # Jaeger OTLP gRPC Ingestion Endpoint
 jaeger_otlp_grpc_endpoint: "{{ jaeger_service_name }}.{{ k8s_monitoring_namespace }}.svc.{{ k8s_cluster_domain }}:{{ jaeger_otlp_grpc_port }}"
 
+# Tempo Query & Ingestion Endpoints
+tempo_url: "http://{{ tempo_service_name }}.{{ k8s_monitoring_namespace }}.svc.{{ k8s_cluster_domain }}:{{ tempo_http_port }}"
+tempo_otlp_grpc_endpoint: "{{ tempo_service_name }}.{{ k8s_monitoring_namespace }}.svc.{{ k8s_cluster_domain }}:{{ tempo_otlp_grpc_port }}"
+
+# Pyroscope Profiling Query & Push Endpoint
+pyroscope_url: "http://{{ pyroscope_service_name }}.{{ k8s_monitoring_namespace }}.svc.{{ k8s_cluster_domain }}:{{ pyroscope_port }}"
+
 # OpenSearch Query & Sink Endpoint
 opensearch_url: "http://{{ opensearch_cluster_name }}-all-in-one.{{ opensearch_namespace }}.svc.{{ k8s_cluster_domain }}:{{ opensearch_port }}"
 
@@ -330,6 +386,7 @@ enable_gateway_tls: true
 base_domain: "seang.shop"
 enable_grafana_route: true
 enable_opensearch_route: true
+enable_jaeger_route: true
 
 # Traefik Gateway & Namespaces
 traefik_gateway_name: "traefik-gateway"
@@ -346,3 +403,4 @@ opensearch_dashboards_service_name: "opensearch-dashboards"
 #   - Permissions: Zone > DNS > Edit, Zone > Zone > Read
 #   - Resources: Include > Specific zone > seang.shop
 # Paste your generated token here:
+

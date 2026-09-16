@@ -72,7 +72,12 @@ alloy:
           endpoint = "0.0.0.0:{{ alloy_otlp_http_port | default(4318) }}"
         }
         output {
-          traces = [otelcol.exporter.otlp.jaeger_backend.input]
+          traces = [
+            otelcol.exporter.otlp.jaeger_backend.input,
+{% if enable_tempo | default(true) %}
+            otelcol.exporter.otlp.tempo_backend.input,
+{% endif %}
+          ]
         }
       }
 
@@ -85,6 +90,17 @@ alloy:
           }
         }
       }
+{% if enable_tempo | default(true) %}
+
+      otelcol.exporter.otlp "tempo_backend" {
+        client {
+          endpoint = "{{ tempo_otlp_grpc_endpoint }}"
+          tls {
+            insecure = true
+          }
+        }
+      }
+{% endif %}
 
 service:
   enabled: true

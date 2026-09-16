@@ -13,6 +13,7 @@ data:
         type: loki
         access: proxy
         url: "http://{{ loki_service_name | default('loki') }}.{{ k8s_monitoring_namespace }}.svc.{{ k8s_cluster_domain | default('k8scluster') }}:{{ loki_service_port | default(3100) }}"
+        uid: "P8E80F9AEF21F6940"
         isDefault: false
         jsonData:
-          maxLines: {{ loki_max_lines | default(1000) }}
+          maxLines: {{ loki_max_lines | default(5000) }}

@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ tempo_service_name | default('tempo') }}-config
+  namespace: "{{ k8s_monitoring_namespace }}"
+  labels:
+    app.kubernetes.io/name: {{ tempo_service_name | default('tempo') }}
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: {{ tempo_http_port | default(3200) }}
+      grpc_listen_port: {{ tempo_grpc_port | default(9095) }}
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: "0.0.0.0:{{ tempo_otlp_grpc_port | default(4317) }}"
+            http:
+              endpoint: "0.0.0.0:{{ tempo_otlp_http_port | default(4318) }}"
+    ingester:
+      max_block_duration: 30m
+    compactor:
+      compaction:
+        block_retention: {{ tempo_retention | default('48h') }}
+    metrics_generator:
+      ring:
+        kvstore:
+          store: inmemory
+      processor:
+        local_blocks:
+          filter_server_spans: false
+        service_graphs: {}
+        span_metrics: {}
+      storage:
+        path: /var/tempo/generator/wal
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+    overrides:
+      metrics_generator_processors:
+        - local-blocks
+        - service-graphs
+        - span-metrics
+
+{% if tempo_storage.enabled | default(true) %}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ tempo_service_name | default('tempo') }}-data
+  namespace: "{{ k8s_monitoring_namespace }}"
+  labels:
+    app.kubernetes.io/name: {{ tempo_service_name | default('tempo') }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: "{{ tempo_storage.storage_class | default(default_storage_class) }}"
+  resources:
+    requests:
+      storage: "{{ tempo_storage.size | default('5Gi') }}"
+{% endif %}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ tempo_service_name | default('tempo') }}
+  namespace: "{{ k8s_monitoring_namespace }}"
+  labels:
+    app.kubernetes.io/name: {{ tempo_service_name | default('tempo') }}
+spec:
+  replicas: {{ tempo_replicas | default(1) }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ tempo_service_name | default('tempo') }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ tempo_service_name | default('tempo') }}
+    spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsNonRoot: true
+{% if tempo_node_selector is defined %}
+      nodeSelector:
+{% for key, value in tempo_node_selector.items() %}
+        {{ key }}: "{{ value }}"
+{% endfor %}
+{% endif %}
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: tempo
+          image: {{ tempo_image | default('grafana/tempo:2.6.1') }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-config.file=/etc/tempo/tempo.yaml"
+          ports:
+            - name: http-api
+              containerPort: {{ tempo_http_port | default(3200) }}
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: {{ tempo_otlp_grpc_port | default(4317) }}
+              protocol: TCP
+            - name: otlp-http
+              containerPort: {{ tempo_otlp_http_port | default(4318) }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ tempo_grpc_port | default(9095) }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http-api
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http-api
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: {{ (tempo_resources.requests.cpu if (tempo_resources is defined and tempo_resources.requests is defined) else '20m') }}
+              memory: {{ (tempo_resources.requests.memory if (tempo_resources is defined and tempo_resources.requests is defined) else '128Mi') }}
+            limits:
+              cpu: {{ (tempo_resources.limits.cpu if (tempo_resources is defined and tempo_resources.limits is defined) else '500m') }}
+              memory: {{ (tempo_resources.limits.memory if (tempo_resources is defined and tempo_resources.limits is defined) else '512Mi') }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tempo
+              readOnly: true
+            - name: data
+              mountPath: /var/tempo
+      volumes:
+        - name: config
+          configMap:
+            name: {{ tempo_service_name | default('tempo') }}-config
+        - name: data
+{% if tempo_storage.enabled | default(true) %}
+          persistentVolumeClaim:
+            claimName: {{ tempo_service_name | default('tempo') }}-data
+{% else %}
+          emptyDir: {}
+{% endif %}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ tempo_service_name | default('tempo') }}
+  namespace: "{{ k8s_monitoring_namespace }}"
+  labels:
+    app.kubernetes.io/name: {{ tempo_service_name | default('tempo') }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ tempo_service_name | default('tempo') }}
+  ports:
+    - name: http-api
+      port: {{ tempo_http_port | default(3200) }}
+      targetPort: http-api
+    - name: otlp-grpc
+      port: {{ tempo_otlp_grpc_port | default(4317) }}
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: {{ tempo_otlp_http_port | default(4318) }}
+      targetPort: otlp-http

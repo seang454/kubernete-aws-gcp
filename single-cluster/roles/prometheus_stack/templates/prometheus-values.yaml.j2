@@ -44,6 +44,8 @@ grafana:
   enabled: true
   adminUser: "{{ grafana_admin_user | default('admin') }}"
   adminPassword: "{{ grafana_admin_password | default('PrometheusGrafanaPass2026!') }}"
+  plugins:
+    - grafana-opensearch-datasource
   sidecar:
     dashboards:
       enabled: true
@@ -77,6 +79,7 @@ nodeExporter:
       enabled: true
 
 prometheus-node-exporter:
+  priorityClassName: system-node-critical
   resources:
     requests:
       cpu: 10m

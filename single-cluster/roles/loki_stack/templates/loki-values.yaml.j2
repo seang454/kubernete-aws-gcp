@@ -5,6 +5,24 @@
 loki:
   enabled: true
   isDefault: false
+  image:
+    tag: {{ loki_image_tag | default('3.3.0') }}
+  config:
+    existingSecret: loki-config
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: http-metrics
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    failureThreshold: 20
+  livenessProbe:
+    httpGet:
+      path: /ready
+      port: http-metrics
+    initialDelaySeconds: 120
+    periodSeconds: 15
+    failureThreshold: 5
   persistence:
 {% if loki_storage.storage_class.enabled | default(true) %}
     enabled: true
@@ -13,10 +31,6 @@ loki:
 {% else %}
     enabled: false
 {% endif %}
-  config:
-    table_manager:
-      retention_deletes_enabled: {{ 'true' if (loki_retention_deletes_enabled | default(true)) else 'false' }}
-      retention_period: "{{ loki_storage.retention | default('168h') }}"
 
 promtail:
   enabled: {{ 'false' if (enable_alloy | default(true)) else 'true' }}
@@ -28,6 +42,9 @@ fluent-bit:
 
 grafana:
   enabled: false  # We use Grafana deployed from kube-prometheus-stack
+  sidecar:
+    datasources:
+      enabled: false
 
 prometheus:
   enabled: false

@@ -88,6 +88,20 @@
         fail_msg: "Jaeger pod is not running in {{ k8s_monitoring_namespace }}"
       when: enable_jaeger | default(true)
 
+    - name: Verify Tempo Deployment Pod
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', tempo_service_name | default('tempo')) | list | length) > 0
+        fail_msg: "Tempo pod is not running in {{ k8s_monitoring_namespace }}"
+      when: enable_tempo | default(true)
+
+    - name: Verify Pyroscope Deployment Pod
+      ansible.builtin.assert:
+        that:
+          - (monitoring_pods.resources | selectattr('metadata.name', 'search', pyroscope_service_name | default('pyroscope')) | list | length) > 0
+        fail_msg: "Pyroscope pod is not running in {{ k8s_monitoring_namespace }}"
+      when: enable_pyroscope | default(true)
+
     - name: Verify OpenTelemetry Collector Deployment Pod
       ansible.builtin.assert:
         that:
@@ -199,6 +213,28 @@
         - enable_opensearch_route | default(true)
         - enable_opensearch | default(true)
         - enable_opensearch_dashboards | default(true)
+
+    - name: Verify Jaeger UI Gateway API HTTPRoute
+      kubernetes.core.k8s_info:
+        api_version: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+        name: jaeger-httproute
+      register: jaeger_httproute
+      when:
+        - enable_gateway_tls | default(true)
+        - enable_jaeger_route | default(true)
+        - enable_jaeger | default(true)
+
+    - name: Assert Jaeger UI HTTPRoute Exists
+      ansible.builtin.assert:
+        that:
+          - jaeger_httproute.resources | length > 0
+        fail_msg: "Jaeger UI HTTPRoute was not found in namespace {{ k8s_monitoring_namespace | default('monitoring') }}"
+      when:
+        - enable_gateway_tls | default(true)
+        - enable_jaeger_route | default(true)
+        - enable_jaeger | default(true)
 
     - name: Display Final Verification Summary
       ansible.builtin.debug:

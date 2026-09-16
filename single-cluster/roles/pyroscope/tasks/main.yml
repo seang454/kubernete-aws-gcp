@@ -1,0 +1,32 @@
+---
+# tasks file for pyroscope (Continuous Profiling Engine)
+
+- name: Ensure monitoring namespace exists
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Namespace
+    name: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+    state: present
+
+- name: Deploy Grafana Pyroscope Server
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'pyroscope-deployment.yaml.j2') | from_yaml_all | list }}"
+    state: present
+
+- name: Register Pyroscope as a Grafana Datasource
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'pyroscope-datasource.yaml.j2') | from_yaml }}"
+    state: present
+
+- name: Wait for Pyroscope Pod to be Ready
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+    label_selectors:
+      - "app.kubernetes.io/name={{ pyroscope_service_name | default('pyroscope') }}"
+  register: pyroscope_pod
+  until: >
+    pyroscope_pod.resources | length > 0 and
+    (pyroscope_pod.resources[0].status.containerStatuses[0].ready | default(false))
+  retries: 40
+  delay: 5

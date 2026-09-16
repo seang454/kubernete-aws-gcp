@@ -162,6 +162,14 @@
     - enable_opensearch | default(true)
     - enable_opensearch_dashboards | default(true)
 
+- name: Deploy Gateway API HTTPRoute for Jaeger UI
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'jaeger-httproute.yaml.j2') | from_yaml }}"
+    state: present
+  when:
+    - enable_jaeger_route | default(true)
+    - enable_jaeger | default(true)
+
 # ------------------------------------------------------------------------------
 # 4. CLOUDFLARE TUNNEL (CLOUDFLARED)
 # ------------------------------------------------------------------------------
@@ -279,7 +287,8 @@
 
     targets = [
         "{{ grafana_domain | default('grafana.' + (base_domain | default('seang.shop'))) }}",
-        "{{ opensearch_domain | default('opensearch.' + (base_domain | default('seang.shop'))) }}"
+        "{{ opensearch_domain | default('opensearch.' + (base_domain | default('seang.shop'))) }}",
+        "{{ jaeger_domain | default('jaeger.' + (base_domain | default('seang.shop'))) }}"
     ]
 
     for host in targets:

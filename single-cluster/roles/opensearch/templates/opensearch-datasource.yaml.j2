@@ -10,13 +10,14 @@ data:
     apiVersion: 1
     datasources:
       - name: OpenSearch
-        type: elasticsearch
+        type: grafana-opensearch-datasource
         access: proxy
         url: {{ opensearch_url }}
+        database: "*"
         isDefault: false
         jsonData:
-          esVersion: "7.10.0"
+          version: "2.3.0"
+          flavor: "opensearch"
           timeField: "@timestamp"
-          interval: "Daily"
           logMessageField: "log"
           logLevelField: "level"

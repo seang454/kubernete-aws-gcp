@@ -12,6 +12,8 @@
     - { role: prometheus_stack, when: enable_prometheus_stack | default(true), tags: ["prometheus", "prometheus_stack"] }
     - { role: loki_stack, when: enable_loki_stack | default(true), tags: ["loki", "loki_stack"] }
     - { role: jaeger, when: enable_jaeger | default(true), tags: ["jaeger"] }
+    - { role: tempo, when: enable_tempo | default(true), tags: ["tempo"] }
+    - { role: pyroscope, when: enable_pyroscope | default(true), tags: ["pyroscope"] }
     - { role: opensearch, when: enable_opensearch | default(true), tags: ["opensearch"] }
 
     # 2. Buffer, Streaming Queue & CDC
