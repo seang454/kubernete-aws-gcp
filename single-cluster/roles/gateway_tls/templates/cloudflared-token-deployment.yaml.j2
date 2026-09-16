@@ -22,8 +22,13 @@ spec:
           image: {{ cloudflare_tunnel_image | default('cloudflare/cloudflared:latest') }}
           args:
             - tunnel
+            - --metrics
+            - 0.0.0.0:2000
             - --no-autoupdate
             - run
+            - --url
+            - https://traefik.{{ traefik_namespace | default('traefik') }}.svc.{{ k8s_cluster_domain | default('k8scluster') }}:443
+            - --no-tls-verify
             - --token
             - $(TUNNEL_TOKEN)
           env:

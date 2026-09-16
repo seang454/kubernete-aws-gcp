@@ -15,11 +15,11 @@ loki:
 {% endif %}
   config:
     table_manager:
-      retention_deletes_enabled: {{ loki_retention_deletes_enabled | default(true) }}
+      retention_deletes_enabled: {{ 'true' if (loki_retention_deletes_enabled | default(true)) else 'false' }}
       retention_period: "{{ loki_storage.retention | default('168h') }}"
 
 promtail:
-  enabled: {% if enable_alloy | default(false) %}false{% else %}true{% endif %}
+  enabled: {{ 'false' if (enable_alloy | default(true)) else 'true' }}
   config:
     lokiAddress: "{{ loki_push_url }}"
 

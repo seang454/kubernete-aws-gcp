@@ -7,6 +7,9 @@ nodeGroup: "all-in-one"
 singleNode: true
 replicas: {{ opensearch_replicas | default(1) }}
 
+nodeSelector:
+  kubernetes.io/arch: amd64
+
 opensearchJavaOpts: "-Xms{{ opensearch_heap_size | default('512m') }} -Xmx{{ opensearch_heap_size | default('512m') }}"
 
 resources:

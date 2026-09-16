@@ -293,30 +293,33 @@ kafka_ui_resources:
     cpu: "500m"
     memory: "512Mi"
 
+# Kubernetes Internal Cluster Domain (Defined by Kubespray CoreDNS)
+k8s_cluster_domain: "k8scluster"
+
 # ------------------------------------------------------------------------------
 # 15. DYNAMIC CROSS-SERVICE CONNECTION ENDPOINTS & URLS
 # Auto-wired across all templates. If you change a name/port above, these update automatically!
 # ------------------------------------------------------------------------------
 # Loki Log Ingestion Endpoint
-loki_push_url: "http://{{ loki_service_name }}.{{ k8s_monitoring_namespace }}.svc.cluster.local:{{ loki_service_port }}/loki/api/v1/push"
+loki_push_url: "http://{{ loki_service_name }}.{{ k8s_monitoring_namespace }}.svc.{{ k8s_cluster_domain }}:{{ loki_service_port }}/loki/api/v1/push"
 
 # Jaeger Query Web UI URL
-jaeger_query_url: "http://{{ jaeger_service_name }}.{{ k8s_monitoring_namespace }}.svc.cluster.local:{{ jaeger_query_port }}"
+jaeger_query_url: "http://{{ jaeger_service_name }}.{{ k8s_monitoring_namespace }}.svc.{{ k8s_cluster_domain }}:{{ jaeger_query_port }}"
 
 # Jaeger OTLP gRPC Ingestion Endpoint
-jaeger_otlp_grpc_endpoint: "{{ jaeger_service_name }}.{{ k8s_monitoring_namespace }}.svc.cluster.local:{{ jaeger_otlp_grpc_port }}"
+jaeger_otlp_grpc_endpoint: "{{ jaeger_service_name }}.{{ k8s_monitoring_namespace }}.svc.{{ k8s_cluster_domain }}:{{ jaeger_otlp_grpc_port }}"
 
 # OpenSearch Query & Sink Endpoint
-opensearch_url: "http://{{ opensearch_cluster_name }}.{{ opensearch_namespace }}.svc.cluster.local:{{ opensearch_port }}"
+opensearch_url: "http://{{ opensearch_cluster_name }}-all-in-one.{{ opensearch_namespace }}.svc.{{ k8s_cluster_domain }}:{{ opensearch_port }}"
 
 # Kafka Bootstrap Servers String
-kafka_bootstrap_servers: "kafka-1-itp.{{ kafka_namespace }}.svc.cluster.local:{{ kafka_plaintext_port }},kafka-2-itp.{{ kafka_namespace }}.svc.cluster.local:{{ kafka_plaintext_port }},kafka-3-itp.{{ kafka_namespace }}.svc.cluster.local:{{ kafka_plaintext_port }}"
+kafka_bootstrap_servers: "kafka-1-itp.{{ kafka_namespace }}.svc.{{ k8s_cluster_domain }}:{{ kafka_plaintext_port }},kafka-2-itp.{{ kafka_namespace }}.svc.{{ k8s_cluster_domain }}:{{ kafka_plaintext_port }},kafka-3-itp.{{ kafka_namespace }}.svc.{{ k8s_cluster_domain }}:{{ kafka_plaintext_port }}"
 
 # Schema Registry Access URL
-schema_registry_url: "http://{{ schema_registry_service_name }}.{{ kafka_namespace }}.svc.cluster.local:{{ schema_registry_port }}"
+schema_registry_url: "http://{{ schema_registry_service_name }}.{{ kafka_namespace }}.svc.{{ k8s_cluster_domain }}:{{ schema_registry_port }}"
 
 # Debezium Connect REST API URL
-debezium_connect_url: "http://{{ debezium_service_name }}.{{ kafka_namespace }}.svc.cluster.local:{{ debezium_port }}"
+debezium_connect_url: "http://{{ debezium_service_name }}.{{ kafka_namespace }}.svc.{{ k8s_cluster_domain }}:{{ debezium_port }}"
 
 # ------------------------------------------------------------------------------
 # 16. ROLE: GATEWAY API, CERT-MANAGER & CLOUDFLARE TUNNEL (`roles/gateway_tls`)
@@ -339,31 +342,3 @@ opensearch_dashboards_service_name: "opensearch-dashboards"
 # ------------------------------------------------------------------------------
 # STEP 1 (MANUAL): CERT-MANAGER DNS-01 API TOKEN
 # ------------------------------------------------------------------------------
-# In Cloudflare Dashboard -> My Profile -> API Tokens -> Create Token -> Custom Token:
-#   - Permissions: Zone > DNS > Edit, Zone > Zone > Read
-#   - Resources: Include > Specific zone > seang.shop
-# Paste your generated token here:
-cloudflare_cluster_issuer_name: "letsencrypt-cloudflare"
-cloudflare_api_token: ""
-
-# ------------------------------------------------------------------------------
-# STEP 2 (MANUAL): CLOUDFLARE TUNNEL (cloudflared in Kubernetes)
-# ------------------------------------------------------------------------------
-# Choose tunnel mode:
-#   - "token"       : Dashboard-managed (Requires Cloudflare Zero Trust tunnel token)
-#   - "credentials" : CLI-managed (NO credit card needed, uses tunnel ID + JSON)
-cloudflare_tunnel_mode: "token"
-cloudflare_tunnel_replicas: 2
-cloudflare_tunnel_image: "cloudflare/cloudflared:latest"
-
-# Option A: If using cloudflare_tunnel_mode: "token" (Dashboard-Managed)
-# In Cloudflare Zero Trust Dashboard -> Networks -> Tunnels -> Create a tunnel:
-# Copy the tunnel token and paste below:
-cloudflare_tunnel_token: ""
-
-# Option B: If using cloudflare_tunnel_mode: "credentials" (CLI-Managed, No Credit Card)
-# Run 'cloudflared tunnel create k8s-tunnel' on your terminal
-# Paste the generated UUID and credentials JSON below:
-cloudflare_tunnel_id: ""
-cloudflare_tunnel_credentials_json: ""
-

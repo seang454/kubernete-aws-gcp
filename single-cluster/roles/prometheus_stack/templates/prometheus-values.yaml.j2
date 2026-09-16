@@ -76,6 +76,15 @@ nodeExporter:
     linux:
       enabled: true
 
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
 # kube-state-metrics (Deployment polling Kubernetes API)
 kubeStateMetrics:
   enabled: {{ enable_kube_state_metrics | default(true) }}

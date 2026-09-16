@@ -52,3 +52,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Custom secrets & group_vars backups
+single-cluster/group_vars/all.txt
+single-cluster/group_vars/*.txt

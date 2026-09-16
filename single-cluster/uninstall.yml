@@ -139,6 +139,80 @@
         - ConfigMap
       failed_when: false
 
+    # --------------------------------------------------------------------------
+    # Teardown Gateway API, Cloudflare Tunnel & TLS Resources
+    # --------------------------------------------------------------------------
+    - name: Delete Grafana Gateway API HTTPRoute
+      kubernetes.core.k8s:
+        api_version: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        name: grafana-httproute
+        namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+        state: absent
+      failed_when: false
+
+    - name: Delete OpenSearch Dashboards Gateway API HTTPRoute
+      kubernetes.core.k8s:
+        api_version: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        name: opensearch-dashboards-httproute
+        namespace: "{{ opensearch_namespace | default('opensearch') }}"
+        state: absent
+      failed_when: false
+
+    - name: Delete cloudflared Deployment in traefik namespace
+      kubernetes.core.k8s:
+        api_version: apps/v1
+        kind: Deployment
+        name: cloudflared
+        namespace: "{{ traefik_namespace | default('traefik') }}"
+        state: absent
+      failed_when: false
+
+    - name: Delete Cloudflare Tunnel Secrets and ConfigMap
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: "{{ item.kind }}"
+        name: "{{ item.name }}"
+        namespace: "{{ traefik_namespace | default('traefik') }}"
+        state: absent
+      loop:
+        - { kind: "Secret", name: "cloudflare-tunnel-token" }
+        - { kind: "Secret", name: "cloudflared-credentials" }
+        - { kind: "ConfigMap", name: "cloudflared-config" }
+      failed_when: false
+
+    - name: Delete Traefik Wildcard TLS Certificate
+      kubernetes.core.k8s:
+        api_version: cert-manager.io/v1
+        kind: Certificate
+        name: traefik-wildcard-cert
+        namespace: "{{ traefik_namespace | default('traefik') }}"
+        state: absent
+      failed_when: false
+
+    - name: Delete Let's Encrypt Cloudflare ClusterIssuer
+      kubernetes.core.k8s:
+        api_version: cert-manager.io/v1
+        kind: ClusterIssuer
+        name: "{{ cloudflare_cluster_issuer_name | default('letsencrypt-cloudflare') }}"
+        state: absent
+      failed_when: false
+
+    - name: Delete Cloudflare API Token Secret in cert-manager
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Secret
+        name: cloudflare-api-token-secret
+        namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
+        state: absent
+      failed_when: false
+
+    - name: Force delete any stuck terminating pods in monitoring namespace
+      ansible.builtin.shell: |
+        kubectl get pods -n {{ k8s_monitoring_namespace | default('monitoring') }} --no-headers 2>/dev/null | grep Terminating | awk '{print $1}' | xargs -r kubectl delete pod -n {{ k8s_monitoring_namespace | default('monitoring') }} --force --grace-period=0
+      failed_when: false
+
     - name: Delete monitoring Namespace
       kubernetes.core.k8s:
         name: "{{ k8s_monitoring_namespace | default('monitoring') }}"

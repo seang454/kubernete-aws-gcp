@@ -9,26 +9,26 @@
   become: false
   roles:
     # 1. Backends & Storage Engines
-    - { role: prometheus_stack, when: enable_prometheus_stack | default(true) }
-    - { role: loki_stack, when: enable_loki_stack | default(true) }
-    - { role: jaeger, when: enable_jaeger | default(true) }
-    - { role: opensearch, when: enable_opensearch | default(true) }
+    - { role: prometheus_stack, when: enable_prometheus_stack | default(true), tags: ["prometheus", "prometheus_stack"] }
+    - { role: loki_stack, when: enable_loki_stack | default(true), tags: ["loki", "loki_stack"] }
+    - { role: jaeger, when: enable_jaeger | default(true), tags: ["jaeger"] }
+    - { role: opensearch, when: enable_opensearch | default(true), tags: ["opensearch"] }
 
     # 2. Buffer, Streaming Queue & CDC
-    - { role: kafka, when: enable_kafka | default(false) }
-    - { role: schema_registry, when: enable_schema_registry | default(false) }
-    - { role: debezium, when: enable_debezium | default(false) }
-    - { role: kafka_ui, when: enable_kafka_ui | default(false) }
+    - { role: kafka, when: enable_kafka | default(false), tags: ["kafka"] }
+    - { role: schema_registry, when: enable_schema_registry | default(false), tags: ["schema_registry"] }
+    - { role: debezium, when: enable_debezium | default(false), tags: ["debezium"] }
+    - { role: kafka_ui, when: enable_kafka_ui | default(false), tags: ["kafka_ui"] }
 
     # 3. Universal Telemetry Shipper
-    - { role: alloy, when: enable_alloy | default(true) }
-    - { role: opentelemetry, when: enable_opentelemetry | default(false) }
+    - { role: alloy, when: enable_alloy | default(true), tags: ["alloy"] }
+    - { role: opentelemetry, when: enable_opentelemetry | default(false), tags: ["opentelemetry", "otel"] }
 
     # 4. Visualization & Dashboards
-    - { role: grafana_dashboards, when: enable_grafana_dashboards | default(true) }
+    - { role: grafana_dashboards, when: enable_grafana_dashboards | default(true), tags: ["dashboards", "grafana_dashboards"] }
 
     # 5. HTTPS Gateway API & Cloudflare Tunnel (Last Stage)
-    - { role: gateway_tls, when: enable_gateway_tls | default(true) }
+    - { role: gateway_tls, when: enable_gateway_tls | default(true), tags: ["gateway", "gateway_tls"] }
 
 - name: Automatically Verify All Services & Health
   import_playbook: verify.yml

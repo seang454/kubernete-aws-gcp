@@ -5,6 +5,9 @@
 opensearchHosts: "{{ opensearch_url }}"
 replicas: {{ opensearch_dashboards_replicas | default(1) }}
 
+nodeSelector:
+  kubernetes.io/arch: amd64
+
 resources:
   requests:
     cpu: {{ (opensearch_dashboards_resources.requests.cpu if (opensearch_dashboards_resources is defined and opensearch_dashboards_resources.requests is defined) else '100m') }}

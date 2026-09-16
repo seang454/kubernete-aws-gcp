@@ -13,25 +13,25 @@ data:
     ingress:
       # Grafana Dashboard route
       - hostname: "{{ grafana_domain | default('grafana.seang.shop') }}"
-        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.cluster.local:443
+        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.{{ k8s_cluster_domain | default('k8scluster') }}:443
         originRequest:
           originServerName: "{{ base_domain | default('seang.shop') }}"
 
       # OpenSearch Dashboard route
       - hostname: "{{ opensearch_domain | default('opensearch.seang.shop') }}"
-        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.cluster.local:443
+        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.{{ k8s_cluster_domain | default('k8scluster') }}:443
         originRequest:
           originServerName: "{{ base_domain | default('seang.shop') }}"
 
       # Wildcard catch-all for remaining cluster services
       - hostname: "*.{{ base_domain | default('seang.shop') }}"
-        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.cluster.local:443
+        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.{{ k8s_cluster_domain | default('k8scluster') }}:443
         originRequest:
           originServerName: "{{ base_domain | default('seang.shop') }}"
 
       # Apex domain
       - hostname: "{{ base_domain | default('seang.shop') }}"
-        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.cluster.local:443
+        service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.{{ k8s_cluster_domain | default('k8scluster') }}:443
         originRequest:
           originServerName: "{{ base_domain | default('seang.shop') }}"
 

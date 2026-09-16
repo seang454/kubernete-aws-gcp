@@ -310,6 +310,8 @@ spec:
           image: cloudflare/cloudflared:latest
           args:
             - tunnel
+            - --metrics
+            - 0.0.0.0:2000
             - --no-autoupdate
             - run
             - --token

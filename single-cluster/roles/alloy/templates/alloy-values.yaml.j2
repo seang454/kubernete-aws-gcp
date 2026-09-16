@@ -25,13 +25,8 @@ alloy:
       protocol: TCP
 
   mounts:
-    extra:
-      - name: varlog
-        mountPath: /var/log
-        readOnly: true
-      - name: varlibdockercontainers
-        mountPath: /var/lib/docker/containers
-        readOnly: true
+    varlog: true
+    dockercontainers: true
 
   configMap:
     create: true

@@ -213,6 +213,79 @@
     - has_cf_tunnel_creds
 
 # ------------------------------------------------------------------------------
+# 4.1 AUTOMATIC DNS CNAME REGISTRATION (CLOUDFLARE TUNNEL ROUTE)
+# ------------------------------------------------------------------------------
+- name: Ensure Cloudflare DNS CNAME records point to Cloudflare Tunnel
+  ansible.builtin.shell: |
+    python3 - << 'PYEOF'
+    import urllib.request, json, base64
+
+    api_token = "{{ cloudflare_api_token }}"
+    base_domain = "{{ base_domain | default('seang.shop') }}"
+    tunnel_id = "{{ cloudflare_tunnel_id | default('') }}"
+
+    if not tunnel_id:
+        try:
+            token_raw = "{{ cloudflare_tunnel_token | default('') }}"
+            token_data = json.loads(base64.b64decode(token_raw + '===').decode('utf-8', errors='ignore'))
+            tunnel_id = token_data.get('t', '')
+        except Exception:
+            pass
+
+    if not tunnel_id:
+        print("No tunnel ID found, skipping DNS CNAME automation")
+        exit(0)
+
+    tunnel_cname = f"{tunnel_id}.cfargotunnel.com"
+
+    # 1. Get Zone ID
+    req = urllib.request.Request(f"https://api.cloudflare.com/client/v4/zones?name={base_domain}", headers={"Authorization": f"Bearer {api_token}"})
+    with urllib.request.urlopen(req) as resp:
+        data = json.loads(resp.read().decode())
+        zone_id = data['result'][0]['id']
+
+    # 2. Get existing DNS records
+    req = urllib.request.Request(f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records", headers={"Authorization": f"Bearer {api_token}"})
+    with urllib.request.urlopen(req) as resp:
+        records = json.loads(resp.read().decode())['result']
+
+    targets = [
+        "{{ grafana_domain | default('grafana.' + (base_domain | default('seang.shop'))) }}",
+        "{{ opensearch_domain | default('opensearch.' + (base_domain | default('seang.shop'))) }}"
+    ]
+
+    for host in targets:
+        existing = [r for r in records if r['name'] == host]
+        if existing:
+            rec = existing[0]
+            if rec['type'] == 'CNAME' and rec['content'] == tunnel_cname and rec.get('proxied') == True:
+                print(f"Record {host} is already correctly configured.")
+                continue
+            rec_id = rec['id']
+            put_req = urllib.request.Request(
+                f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records/{rec_id}",
+                data=json.dumps({'type': 'CNAME', 'name': host, 'content': tunnel_cname, 'ttl': 1, 'proxied': True}).encode(),
+                headers={"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"},
+                method='PUT'
+            )
+            with urllib.request.urlopen(put_req) as p_resp:
+                print(f"Updated record {host} -> {tunnel_cname}")
+        else:
+            post_req = urllib.request.Request(
+                f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
+                data=json.dumps({'type': 'CNAME', 'name': host, 'content': tunnel_cname, 'ttl': 1, 'proxied': True}).encode(),
+                headers={"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(post_req) as p_resp:
+                print(f"Created record {host} -> {tunnel_cname}")
+    PYEOF
+  register: cf_cname_result
+  changed_when: "'Created' in cf_cname_result.stdout or 'Updated' in cf_cname_result.stdout"
+  when:
+    - has_cf_api_token
+    - has_cf_tunnel_token or has_cf_tunnel_creds
+
+# ------------------------------------------------------------------------------
 # 5. POST-DEPLOYMENT SUMMARY
 # ------------------------------------------------------------------------------
 - name: Display Gateway API & HTTPS Configuration Status
