@@ -1,0 +1,113 @@
+# ==============================================================================
+# DEMO 1: DISTRIBUTED MICROSERVICES ARCHITECTURE (Jaeger HotROD)
+# Tests: Distributed Traces (Tempo + Jaeger), Logs (Loki 3.3), Metrics (Prometheus)
+# ==============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-microservices
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hotrod-microservices
+  namespace: demo-microservices
+  labels:
+    app.kubernetes.io/name: hotrod
+    app.kubernetes.io/part-of: demo-microservices
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hotrod
+  template:
+    metadata:
+      labels:
+        app: hotrod
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: master02
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: hotrod
+          image: jaegertracing/example-hotrod:1.60.0
+          args: ["all"]
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://alloy.monitoring.svc.k8scluster:4318"
+            - name: JAEGER_AGENT_HOST
+              value: "alloy.monitoring.svc.k8scluster"
+            - name: JAEGER_AGENT_PORT
+              value: "6831"
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 40Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hotrod
+  namespace: demo-microservices
+  labels:
+    app: hotrod
+spec:
+  type: ClusterIP
+  selector:
+    app: hotrod
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# Continuous Traffic Generator: Simulates real users calling the microservices
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hotrod-loadgen
+  namespace: demo-microservices
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hotrod-loadgen
+  template:
+    metadata:
+      labels:
+        app: hotrod-loadgen
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: master02
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: loadgen
+          image: curlimages/curl:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Starting continuous microservices traffic generator...";
+              while true; do
+                curl -s "http://hotrod.demo-microservices.svc.k8scluster:8080/dispatch?customer=123&nonse=$(date +%s%N)" > /dev/null
+                curl -s "http://hotrod.demo-microservices.svc.k8scluster:8080/dispatch?customer=392&nonse=$(date +%s%N)" > /dev/null
+                curl -s "http://hotrod.demo-microservices.svc.k8scluster:8080/dispatch?customer=731&nonse=$(date +%s%N)" > /dev/null
+                sleep 2
+              done
+          resources:
+            requests:
+              cpu: 5m
+              memory: 10Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi

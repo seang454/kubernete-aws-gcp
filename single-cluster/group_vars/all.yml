@@ -161,11 +161,11 @@ tempo_node_selector:
   kubernetes.io/hostname: master02
 tempo_resources:
   requests:
-    cpu: "20m"
-    memory: "128Mi"
+    cpu: "50m"
+    memory: "256Mi"
   limits:
-    cpu: "500m"
-    memory: "512Mi"
+    cpu: "800m"
+    memory: "1280Mi"
 tempo_storage:
   enabled: true
   storage_class: "{{ default_storage_class }}"

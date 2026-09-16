@@ -54,6 +54,19 @@ alloy:
           source = "filename"
           expression = ".*alloy.*"
         }
+        stage.regex {
+          source = "filename"
+          expression = "^/var/log/pods/(?P<namespace>[^_]+)_(?P<pod>[^_]+)_[^/]+/(?P<container>[^/]+)/.*\\.log$"
+        }
+        stage.labels {
+          values = {
+            namespace = "namespace",
+            pod       = "pod",
+            container = "container",
+            app       = "container",
+          }
+        }
+        stage.cri {}
         forward_to = [loki.write.loki_backend.receiver]
       }
 

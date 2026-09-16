@@ -1,0 +1,221 @@
+# ==============================================================================
+# DEMO 2: MONOLITHIC ARCHITECTURE APPLICATION
+# Tests: Pyroscope Continuous Profiling (Flame Graphs), Tempo & Jaeger Traces,
+#        Loki Structured Logs, Prometheus Metrics (/metrics)
+# ==============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-monolith
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monolith-code
+  namespace: demo-monolith
+data:
+  app.py: |
+    import time
+    import math
+    import hashlib
+    import sqlite3
+    import logging
+    import threading
+    import random
+    from flask import Flask, jsonify, request, Response
+    from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+    # 1. SETUP LOGGING (Streamed to Loki via Alloy)
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] [service=monolith_ecommerce] %(message)s')
+    logger = logging.getLogger("monolith")
+
+    # 2. SETUP CONTINUOUS PROFILING (Grafana Pyroscope)
+    try:
+        import pyroscope
+        pyroscope.configure(
+            application_name = "monolith_ecommerce",
+            server_address   = "http://pyroscope.monitoring.svc.k8scluster:4040"
+        )
+        logger.info("Pyroscope profiling successfully initialized -> http://pyroscope.monitoring.svc.k8scluster:4040")
+    except Exception as e:
+        logger.warning(f"Pyroscope init warning: {e}")
+
+    # 3. SETUP DISTRIBUTED TRACING (OpenTelemetry -> Alloy -> Tempo & Jaeger)
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import Resource
+
+    resource = Resource.create(attributes={"service.name": "monolith_ecommerce"})
+    provider = TracerProvider(resource=resource)
+    otlp_exporter = OTLPSpanExporter(endpoint="http://alloy.monitoring.svc.k8scluster:4318/v1/traces")
+    provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+    trace.set_tracer_provider(provider)
+    tracer = trace.get_tracer("monolith_ecommerce")
+
+    # 4. SETUP PROMETHEUS METRICS
+    REQUEST_COUNT = Counter('monolith_requests_total', 'Total HTTP Requests', ['method', 'endpoint', 'status'])
+    REQUEST_LATENCY = Histogram('monolith_request_duration_seconds', 'Request latency in seconds', ['endpoint'])
+    ORDER_AMOUNT = Counter('monolith_orders_total_usd', 'Total monetary amount of orders placed')
+
+    # 5. SETUP SQLITE DATABASE (Monolithic in-memory ACID store)
+    db = sqlite3.connect(":memory:", check_same_thread=False)
+    db.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT, price REAL, timestamp TEXT)")
+    db.commit()
+
+    app = Flask(__name__)
+
+    @app.route('/health')
+    def health():
+        return jsonify({"status": "healthy", "service": "monolith.ecommerce"})
+
+    @app.route('/metrics')
+    def metrics():
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+    @app.route('/api/checkout', methods=['GET', 'POST'])
+    def checkout():
+        start_time = time.time()
+        with tracer.start_as_current_span("checkout_process") as root_span:
+            root_span.set_attribute("app.type", "monolith")
+            item = random.choice(["Laptop", "Smartphone", "Headphones", "Mechanical Keyboard"])
+            price = round(random.uniform(50.0, 1200.0), 2)
+            root_span.set_attribute("order.item", item)
+            root_span.set_attribute("order.price", price)
+
+            # Sub-span: Database operations
+            with tracer.start_as_current_span("database_transaction"):
+                cur = db.cursor()
+                cur.execute("INSERT INTO orders (item, price, timestamp) VALUES (?, ?, ?)", (item, price, time.strftime("%Y-%m-%d %H:%M:%S")))
+                db.commit()
+                order_id = cur.lastrowid
+
+            # Sub-span: Heavy CPU hashing & computation (shows up clearly in Pyroscope Flame Graph!)
+            with tracer.start_as_current_span("fraud_detection_analysis"):
+                # Compute SHA256 hashes to generate observable CPU profiles
+                hasher = hashlib.sha256()
+                for _ in range(80000):
+                    hasher.update(str(order_id).encode() + b"SALT_VERIFY")
+                fraud_score = round(random.uniform(0.01, 0.12), 4)
+
+            duration = time.time() - start_time
+            REQUEST_COUNT.labels(method='POST', endpoint='/api/checkout', status='200').inc()
+            REQUEST_LATENCY.labels(endpoint='/api/checkout').observe(duration)
+            ORDER_AMOUNT.inc(price)
+
+            logger.info(f"Order #{order_id} placed successfully: {item} (${price}) - FraudScore: {fraud_score} in {duration*1000:.1f}ms")
+            return jsonify({
+                "order_id": order_id,
+                "item": item,
+                "price": price,
+                "fraud_score": fraud_score,
+                "status": "COMPLETED"
+            })
+
+    # 6. INTERNAL BACKGROUND SIMULATOR: Continuously triggers checkout & CPU load
+    def background_traffic():
+        time.sleep(5)
+        import urllib.request
+        logger.info("Internal traffic generator started - placing orders every 2 seconds...")
+        while True:
+            try:
+                urllib.request.urlopen("http://127.0.0.1:8000/api/checkout")
+            except Exception as ex:
+                logger.error(f"Traffic simulation error: {ex}")
+            time.sleep(2)
+
+    threading.Thread(target=background_traffic, daemon=True).start()
+
+    if __name__ == '__main__':
+        logger.info("Monolith eCommerce service listening on port 8000...")
+        app.run(host='0.0.0.0', port=8000)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monolith-app
+  namespace: demo-monolith
+  labels:
+    app.kubernetes.io/name: monolith-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monolith-app
+  template:
+    metadata:
+      labels:
+        app: monolith-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: master02
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: monolith
+          image: python:3.11-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Installing observability libraries..."
+              pip install --no-cache-dir flask pyroscope-io opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http prometheus-client requests
+              echo "Starting Monolithic Application..."
+              python3 /app/app.py
+          ports:
+            - containerPort: 8000
+              name: http
+          volumeMounts:
+            - name: code
+              mountPath: /app
+          resources:
+            requests:
+              cpu: 20m
+              memory: 50Mi
+            limits:
+              cpu: 300m
+              memory: 160Mi
+      volumes:
+        - name: code
+          configMap:
+            name: monolith-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: monolith-service
+  namespace: demo-monolith
+  labels:
+    app: monolith-app
+spec:
+  type: ClusterIP
+  selector:
+    app: monolith-app
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: monolith-monitor
+  namespace: demo-monolith
+  labels:
+    release: prometheus
+    app: monolith-app
+spec:
+  selector:
+    matchLabels:
+      app: monolith-app
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+

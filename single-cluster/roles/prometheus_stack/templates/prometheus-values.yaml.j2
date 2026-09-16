@@ -15,6 +15,8 @@ prometheusOperator:
 prometheus:
   enabled: true
   prometheusSpec:
+    secrets:
+      - etcd-client-cert
     retention: "{{ prometheus_storage.retention | default('15d') }}"
     scrapeInterval: "{{ prometheus_scrape_interval | default('15s') }}"
     evaluationInterval: "{{ prometheus_evaluation_interval | default('15s') }}"
@@ -107,3 +109,28 @@ kubeScheduler:
 
 kubeProxy:
   enabled: false
+
+# etcd Scraping (External Systemd Cluster with mTLS)
+kubeEtcd:
+  enabled: true
+  endpoints:
+{% for host in groups['k8s_control_plane'] | default([]) %}
+    - {{ hostvars[host].internal_ip | default(hostvars[host].ansible_host) }}
+{% endfor %}
+{% if groups['k8s_control_plane'] is not defined %}
+    - 10.0.0.1
+    - 10.0.0.2
+    - 10.0.0.3
+{% endif %}
+  service:
+    enabled: true
+    port: 2379
+    targetPort: 2379
+  serviceMonitor:
+    enabled: true
+    scheme: https
+    insecureSkipVerify: false
+    caFile: /etc/prometheus/secrets/etcd-client-cert/etcd-ca
+    certFile: /etc/prometheus/secrets/etcd-client-cert/etcd-client
+    keyFile: /etc/prometheus/secrets/etcd-client-cert/etcd-client-key
+

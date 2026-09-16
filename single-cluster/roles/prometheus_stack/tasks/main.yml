@@ -23,6 +23,15 @@
     kind: Namespace
     state: present
 
+- name: Create etcd client cert Secret in monitoring namespace
+  ansible.builtin.shell: |
+    kubectl create secret generic etcd-client-cert -n {{ k8s_monitoring_namespace }} \
+      --from-file=etcd-ca=/etc/ssl/etcd/ssl/ca.pem \
+      --from-file=etcd-client=/etc/ssl/etcd/ssl/admin-master01.pem \
+      --from-file=etcd-client-key=/etc/ssl/etcd/ssl/admin-master01-key.pem \
+      --dry-run=client -o yaml | kubectl apply -f -
+  become: true
+
 - name: Render Prometheus Values File
   ansible.builtin.template:
     src: prometheus-values.yaml.j2
