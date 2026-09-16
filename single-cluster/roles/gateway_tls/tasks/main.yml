@@ -71,6 +71,34 @@
     state: present
   when: has_cf_api_token
 
+- name: Ensure cert-manager-webhook deployment is scaled for high availability
+  kubernetes.core.k8s:
+    api_version: apps/v1
+    kind: Deployment
+    name: cert-manager-webhook
+    namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
+    definition:
+      spec:
+        replicas: 2
+    state: present
+  when: has_cf_api_token
+
+- name: Wait for cert-manager-webhook pods to be running and ready
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ cert_manager_namespace | default('cert-manager') }}"
+    label_selectors:
+      - "app.kubernetes.io/name=webhook"
+  register: webhook_pods
+  until: >
+    webhook_pods.resources is defined and
+    webhook_pods.resources | length > 0 and
+    (webhook_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length) >= 1
+  retries: 15
+  delay: 3
+  when: has_cf_api_token
+
 - name: Deploy Let's Encrypt Cloudflare DNS-01 ClusterIssuer
   kubernetes.core.k8s:
     definition: "{{ lookup('template', 'cluster-issuer.yaml.j2') | from_yaml }}"

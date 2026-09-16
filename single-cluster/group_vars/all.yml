@@ -342,3 +342,7 @@ opensearch_dashboards_service_name: "opensearch-dashboards"
 # ------------------------------------------------------------------------------
 # STEP 1 (MANUAL): CERT-MANAGER DNS-01 API TOKEN
 # ------------------------------------------------------------------------------
+# In Cloudflare Dashboard -> My Profile -> API Tokens -> Create Token -> Custom Token:
+#   - Permissions: Zone > DNS > Edit, Zone > Zone > Read
+#   - Resources: Include > Specific zone > seang.shop
+# Paste your generated token here:
