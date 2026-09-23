@@ -151,6 +151,24 @@
         state: absent
       failed_when: false
 
+    - name: Delete Prometheus Gateway API HTTPRoute
+      kubernetes.core.k8s:
+        api_version: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        name: prometheus-httproute
+        namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+        state: absent
+      failed_when: false
+
+    - name: Delete Jaeger Gateway API HTTPRoute
+      kubernetes.core.k8s:
+        api_version: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        name: jaeger-httproute
+        namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+        state: absent
+      failed_when: false
+
     - name: Delete OpenSearch Dashboards Gateway API HTTPRoute
       kubernetes.core.k8s:
         api_version: gateway.networking.k8s.io/v1

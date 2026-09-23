@@ -1,0 +1,22 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: prometheus-httproute
+  namespace: {{ k8s_monitoring_namespace | default('monitoring') }}
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: kube-prometheus-stack
+spec:
+  parentRefs:
+    - name: {{ traefik_gateway_name | default('traefik-gateway') }}
+      namespace: {{ traefik_namespace | default('traefik') }}
+  hostnames:
+    - "{{ prometheus_domain | default('prometheus.seang.shop') }}"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ prometheus_backend_service | default('prometheus-kube-prometheus-prometheus') }}
+          port: {{ prometheus_backend_port | default(9090) }}

@@ -18,17 +18,23 @@
 - name: Phase 1 - Common Setup & Key Generation
   hosts: wireguard
   gather_facts: false
+  become: true
+  tags: [phase1, common]
   roles:
     - role: common
 
 - name: Phase 2 - Deploy WireGuard Full Mesh Configuration & Start Service
   hosts: wireguard
   gather_facts: false
+  become: true
+  tags: [phase2, wireguard]
   roles:
     - role: wireguard
 
 - name: Phase 3 - Comprehensive 100% WireGuard Mesh Verification
   hosts: wireguard
   gather_facts: false
+  become: true
+  tags: [phase3, verify]
   roles:
     - role: wireguard_test

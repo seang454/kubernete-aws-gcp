@@ -7,12 +7,19 @@
 # 4. Reads and registers keys as Ansible host facts for mesh configuration
 # =============================================================================
 
-- name: Update apt cache and install WireGuard packages
+- name: Force update apt cache to index universe repositories
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 0
+  register: apt_update
+  retries: 5
+  delay: 10
+  until: apt_update is success
+
+- name: Install WireGuard packages and dependencies
   ansible.builtin.apt:
     name: "{{ wireguard_packages }}"
     state: present
-    update_cache: true
-    cache_valid_time: 3600
   register: apt_install
   retries: 5
   delay: 5
@@ -115,6 +122,8 @@
     mode: '0755'
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
   run_once: true
 
 - name: Save public key copy to controller
@@ -124,6 +133,8 @@
     mode: '0644'
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Display node WireGuard key and assigned IP
   ansible.builtin.debug:

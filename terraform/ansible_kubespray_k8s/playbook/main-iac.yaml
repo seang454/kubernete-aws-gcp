@@ -165,73 +165,73 @@
       ansible.builtin.debug:
         msg: "Runner written to {{ kubespray_runner }} — Kubespray will start with live output shortly"
 
-# --------------------------------------------------------------------------
-# 4. Install zsh on control plane nodes
-# --------------------------------------------------------------------------
-- name: Install zsh on control plane nodes
-  hosts: kube_control_plane
-  gather_facts: false
-  tasks:
-    - name: Wait for SSH before zsh setup
-      ansible.builtin.wait_for_connection:
-        delay: 5
-        timeout: 120
+# # --------------------------------------------------------------------------
+# # 4. Install zsh on control plane nodes
+# # --------------------------------------------------------------------------
+# - name: Install zsh on control plane nodes
+#   hosts: kube_control_plane
+#   gather_facts: false
+#   tasks:
+#     - name: Wait for SSH before zsh setup
+#       ansible.builtin.wait_for_connection:
+#         delay: 5
+#         timeout: 120
 
-    - name: Copy zsh.sh to control plane nodes
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../zsh/zsh.sh"
-        dest: /tmp/zsh.sh
-        mode: "0755"
+#     - name: Copy zsh.sh to control plane nodes
+#       ansible.builtin.copy:
+#         src: "{{ playbook_dir }}/../zsh/zsh.sh"
+#         dest: /tmp/zsh.sh
+#         mode: "0755"
 
-    - name: Run zsh.sh on control plane nodes
-      ansible.builtin.shell:
-        cmd: /tmp/zsh.sh
-      become: true
-      args:
-        executable: /bin/bash
-      environment:
-        DEBIAN_FRONTEND: noninteractive
-      async: 600
-      poll: 15
-      register: zsh_cp_output
+#     - name: Run zsh.sh on control plane nodes
+#       ansible.builtin.shell:
+#         cmd: /tmp/zsh.sh
+#       become: true
+#       args:
+#         executable: /bin/bash
+#       environment:
+#         DEBIAN_FRONTEND: noninteractive
+#       async: 600
+#       poll: 15
+#       register: zsh_cp_output
 
-    - name: Show zsh.sh output (control plane)
-      ansible.builtin.debug:
-        msg: "{{ zsh_cp_output.stdout_lines }}"
+#     - name: Show zsh.sh output (control plane)
+#       ansible.builtin.debug:
+#         msg: "{{ zsh_cp_output.stdout_lines }}"
 
-# --------------------------------------------------------------------------
-# 5. Install zsh on worker nodes
-# --------------------------------------------------------------------------
-- name: Install zsh on worker nodes
-  hosts: kube_node
-  gather_facts: false
-  tasks:
-    - name: Wait for SSH before zsh setup
-      ansible.builtin.wait_for_connection:
-        delay: 5
-        timeout: 120
+# # --------------------------------------------------------------------------
+# # 5. Install zsh on worker nodes
+# # --------------------------------------------------------------------------
+# - name: Install zsh on worker nodes
+#   hosts: kube_node
+#   gather_facts: false
+#   tasks:
+#     - name: Wait for SSH before zsh setup
+#       ansible.builtin.wait_for_connection:
+#         delay: 5
+#         timeout: 120
 
-    - name: Copy zsh.sh to worker nodes
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../zsh/zsh.sh"
-        dest: /tmp/zsh.sh
-        mode: "0755"
+#     - name: Copy zsh.sh to worker nodes
+#       ansible.builtin.copy:
+#         src: "{{ playbook_dir }}/../zsh/zsh.sh"
+#         dest: /tmp/zsh.sh
+#         mode: "0755"
 
-    - name: Run zsh.sh on worker nodes
-      ansible.builtin.shell:
-        cmd: /tmp/zsh.sh
-      become: true
-      args:
-        executable: /bin/bash
-      environment:
-        DEBIAN_FRONTEND: noninteractive
-      async: 600
-      poll: 15
-      register: zsh_worker_output
+#     - name: Run zsh.sh on worker nodes
+#       ansible.builtin.shell:
+#         cmd: /tmp/zsh.sh
+#       become: true
+#       args:
+#         executable: /bin/bash
+#       environment:
+#         DEBIAN_FRONTEND: noninteractive
+#       async: 600
+#       poll: 15
+#       register: zsh_worker_output
 
-    - name: Show zsh.sh output (workers)
-      ansible.builtin.debug:
-        msg: "{{ zsh_worker_output.stdout_lines }}"
+#     - name: Show zsh.sh output (workers)
+#       ansible.builtin.debug:
+#         msg: "{{ zsh_worker_output.stdout_lines }}"
 
 # --------------------------------------------------------------------------
 # 6. [SERVER-SIDE KEEP-ALIVE]: Ensure remote SSH daemons (sshd) send

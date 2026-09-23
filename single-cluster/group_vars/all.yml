@@ -385,6 +385,7 @@ enable_gateway_tls: true
 # Base Domain & Route Toggles
 base_domain: "seang.shop"
 enable_grafana_route: true
+enable_prometheus_route: true
 enable_opensearch_route: true
 enable_jaeger_route: true
 
@@ -394,13 +395,7 @@ traefik_namespace: "traefik"
 cert_manager_namespace: "cert-manager"
 grafana_backend_service: "prometheus-grafana"
 grafana_backend_port: 80
+prometheus_backend_service: "prometheus-kube-prometheus-prometheus"
+prometheus_backend_port: 9090
 opensearch_dashboards_service_name: "opensearch-dashboards"
-
-# ------------------------------------------------------------------------------
-# STEP 1 (MANUAL): CERT-MANAGER DNS-01 API TOKEN
-# ------------------------------------------------------------------------------
-# In Cloudflare Dashboard -> My Profile -> API Tokens -> Create Token -> Custom Token:
-#   - Permissions: Zone > DNS > Edit, Zone > Zone > Read
-#   - Resources: Include > Specific zone > seang.shop
-# Paste your generated token here:
 

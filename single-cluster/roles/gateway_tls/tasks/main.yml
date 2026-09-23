@@ -142,6 +142,14 @@
     - enable_grafana_route | default(true)
     - enable_prometheus_stack | default(true)
 
+- name: Deploy Gateway API HTTPRoute for Prometheus UI
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'prometheus-httproute.yaml.j2') | from_yaml }}"
+    state: present
+  when:
+    - enable_prometheus_route | default(true)
+    - enable_prometheus_stack | default(true)
+
 - name: Ensure opensearch namespace exists for OpenSearch Dashboards HTTPRoute
   kubernetes.core.k8s:
     api_version: v1
@@ -287,6 +295,7 @@
 
     targets = [
         "{{ grafana_domain | default('grafana.' + (base_domain | default('seang.shop'))) }}",
+        "{{ prometheus_domain | default('prometheus.' + (base_domain | default('seang.shop'))) }}",
         "{{ opensearch_domain | default('opensearch.' + (base_domain | default('seang.shop'))) }}",
         "{{ jaeger_domain | default('jaeger.' + (base_domain | default('seang.shop'))) }}"
     ]
@@ -334,6 +343,7 @@
       - "• Gateway Name:  {{ traefik_gateway_name | default('traefik-gateway') }} (Namespace: {{ traefik_namespace | default('traefik') }})"
       - "• TLS Secret:    traefik-gateway-tls (*.{{ base_domain | default('seang.shop') }})"
       - "• Grafana URL:   https://{{ grafana_domain | default('grafana.seang.shop') }}"
+      - "• Prometheus URL:https://{{ prometheus_domain | default('prometheus.seang.shop') }}"
       - "• OpenSearch URL:https://{{ opensearch_domain | default('opensearch.seang.shop') }}"
       - "• DNS-01 Issuer: {{ 'Active (' + (cloudflare_cluster_issuer_name | default('letsencrypt-cloudflare')) + ')' if has_cf_api_token else 'Pending (set cloudflare_api_token in group_vars/all.yml)' }}"
       - "• Tunnel Pods:   {{ 'Active (' + (cloudflare_tunnel_mode | default('token')) + ' mode)' if (has_cf_tunnel_token or has_cf_tunnel_creds) else 'Pending (set cloudflare_tunnel_* in group_vars/all.yml)' }}"

@@ -275,7 +275,7 @@ resource "google_compute_instance" "this" {
   })
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
     ignore_changes = [
       boot_disk[0].initialize_params[0].size,
       boot_disk[0].initialize_params[0].image,

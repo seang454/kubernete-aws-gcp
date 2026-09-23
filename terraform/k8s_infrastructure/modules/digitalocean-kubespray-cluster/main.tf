@@ -196,7 +196,7 @@ resource "digitalocean_droplet" "this" {
   ])
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
     ignore_changes = [
       image,
       user_data,

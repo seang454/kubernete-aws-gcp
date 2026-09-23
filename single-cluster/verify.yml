@@ -190,6 +190,28 @@
         - enable_grafana_route | default(true)
         - enable_prometheus_stack | default(true)
 
+    - name: Verify Prometheus Gateway API HTTPRoute
+      kubernetes.core.k8s_info:
+        api_version: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        namespace: "{{ k8s_monitoring_namespace | default('monitoring') }}"
+        name: prometheus-httproute
+      register: prometheus_httproute
+      when:
+        - enable_gateway_tls | default(true)
+        - enable_prometheus_route | default(true)
+        - enable_prometheus_stack | default(true)
+
+    - name: Assert Prometheus HTTPRoute Exists
+      ansible.builtin.assert:
+        that:
+          - prometheus_httproute.resources | length > 0
+        fail_msg: "Prometheus HTTPRoute was not found in namespace {{ k8s_monitoring_namespace | default('monitoring') }}"
+      when:
+        - enable_gateway_tls | default(true)
+        - enable_prometheus_route | default(true)
+        - enable_prometheus_stack | default(true)
+
     - name: Verify OpenSearch Dashboards Gateway API HTTPRoute
       kubernetes.core.k8s_info:
         api_version: gateway.networking.k8s.io/v1
@@ -250,5 +272,5 @@
           - "• Database CDC: Debezium Kafka Connect ({{ 'Enabled' if (enable_debezium | default(false)) else 'Disabled' }})"
           - "• Kafka UI: Provectus Kafka UI Dashboard ({{ 'Enabled' if (enable_kafka_ui | default(false)) else 'Disabled' }})"
           - "• Visualization UIs: Grafana & OpenSearch Dashboards"
-          - "• HTTPS Gateway: Traefik Gateway API HTTPRoutes (Grafana & OpenSearch)"
+          - "• HTTPS Gateway: Traefik Gateway API HTTPRoutes (Grafana, Prometheus, OpenSearch, Jaeger)"
           - "======================================================================="

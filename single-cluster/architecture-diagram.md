@@ -33,6 +33,7 @@ flowchart TD
 
         subgraph RoutingRules["🔀 Kubernetes Gateway API HTTPRoutes"]
             routeGrafana["🔀 HTTPRoute: <code>grafana-httproute</code><br>• Hostname: <code>grafana.seang.shop</code><br>• Target: <code>prometheus-grafana:80</code>"]
+            routeProm["🔀 HTTPRoute: <code>prometheus-httproute</code><br>• Hostname: <code>prometheus.seang.shop</code><br>• Target: <code>prometheus-kube-prometheus-prometheus:9090</code>"]
             routeOS["🔀 HTTPRoute: <code>opensearch-dashboards-httproute</code><br>• Hostname: <code>opensearch.seang.shop</code><br>• Target: <code>opensearch-dashboards:5601</code>"]
         end
 

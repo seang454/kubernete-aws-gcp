@@ -6,5 +6,6 @@
 - name: Verify WireGuard Mesh Across All Nodes (100% Quality Gate)
   hosts: wireguard
   gather_facts: false
+  become: true
   roles:
     - role: wireguard_test

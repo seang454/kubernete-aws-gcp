@@ -466,7 +466,7 @@ resource "aws_instance" "this" {
   })
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
     ignore_changes = [
       ami,
       user_data,

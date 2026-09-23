@@ -252,7 +252,31 @@ spec:
           port: 80
 ```
 
-### 5. Gateway API HTTPRoute for OpenSearch Dashboards
+### 5. Gateway API HTTPRoute for Prometheus UI
+```yaml
+# prometheus-httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: prometheus-httproute
+  namespace: monitoring
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+  hostnames:
+    - "prometheus.seang.shop"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: prometheus-kube-prometheus-prometheus
+          port: 9090
+```
+
+### 6. Gateway API HTTPRoute for OpenSearch Dashboards
 ```yaml
 # opensearch-httproute.yaml
 apiVersion: gateway.networking.k8s.io/v1
