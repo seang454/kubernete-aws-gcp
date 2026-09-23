@@ -77,12 +77,12 @@ spec:
 
 ```mermaid
 flowchart TD
-    ClientPod["Client Pod"] -->|1. Lookup 'db-service'| DNS["CoreDNS"]
-    DNS -->|2. Returns List of All Pod IPs| ClientPod
+    ClientPod["Client Pod"] -->|"1. Lookup db-service"| DNS["CoreDNS"]
+    DNS -->|"2. Returns List of All Pod IPs"| ClientPod
     
-    ClientPod -->|Direct TCP: 10.233.65.21| DB0["Stateful Pod db-0 (IP: 10.233.65.21)"]
-    ClientPod -.->|Direct TCP: 10.233.66.22| DB1["Stateful Pod db-1 (IP: 10.233.66.22)"]
-    ClientPod -.->|Direct TCP: 10.233.67.23| DB2["Stateful Pod db-2 (IP: 10.233.67.23)"]
+    ClientPod -->|"Direct TCP: 10.233.65.21"| DB0["Stateful Pod db-0 (IP: 10.233.65.21)"]
+    ClientPod -.->|"Direct TCP: 10.233.66.22"| DB1["Stateful Pod db-1 (IP: 10.233.66.22)"]
+    ClientPod -.->|"Direct TCP: 10.233.67.23"| DB2["Stateful Pod db-2 (IP: 10.233.67.23)"]
 ```
 
 ```yaml
@@ -110,8 +110,8 @@ spec:
 ```mermaid
 flowchart TD
     Client["External Client"]
-    Client -->|Connects to Node 01: 18.138.78.218:31080| Node1["Worker Node 01 (18.138.78.218)"]
-    Client -.->|Or connects to Node 02: 13.215.117.171:31080| Node2["Worker Node 02 (13.215.117.171)"]
+    Client -->|"Connects to Node 01: 18.138.78.218:31080"| Node1["Worker Node 01 (18.138.78.218)"]
+    Client -.->|"Or connects to Node 02: 13.215.117.171:31080"| Node2["Worker Node 02 (13.215.117.171)"]
 
     subgraph Node1["Worker Node 01"]
         NP1["Port 31080 (kube-proxy)"] -->|Local routing| PodA["App Pod A (10.233.64.8)"]
@@ -258,14 +258,14 @@ Setting `hostNetwork: true` instructs the container runtime **not** to create a 
 
 ```mermaid
 flowchart TD
-    Internet["External Internet Client"] -->|TCP SYN: 18.138.78.218:80| HostNIC["Host Physical NIC (eth0: 18.138.78.218)"]
+    Internet["External Internet Client"] -->|"TCP SYN: 18.138.78.218:80"| HostNIC["Host Physical NIC (eth0: 18.138.78.218)"]
 
     subgraph HostVM["Worker Node (Host Root Network Namespace)"]
         HostNIC --> KernelStack["Linux Kernel Socket Layer (Root NetNS)"]
 
         subgraph Pod["Pod (hostNetwork: true)"]
             IngressApp["NGINX Ingress Process (PID 4512)"]
-            KernelStack -->|Direct Kernel Socket (No veth, No NAT)| IngressApp
+            KernelStack -->|"Direct Kernel Socket (No veth, No NAT)"| IngressApp
         end
 
         subgraph LocalHostServices["Other Host Services"]
@@ -304,17 +304,17 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Client["Client"] -->|Connects to Node: 18.138.78.218:8080| PhysicalNIC["Host eth0 (18.138.78.218)"]
+    Client["Client"] -->|"Connects to Node: 18.138.78.218:8080"| PhysicalNIC["Host eth0 (18.138.78.218)"]
 
     subgraph HostVM["Worker Node"]
         PhysicalNIC --> IPTables["Host iptables (CNI-HOSTPORT-DNAT)"]
-        IPTables -->|1. DNAT: Rewrites dest to 10.233.64.9:80| VethHost["veth Host Endpoint"]
+        IPTables -->|"1. DNAT: Rewrites dest to 10.233.64.9:80"| VethHost["veth Host Endpoint"]
 
         subgraph PodNS["Isolated Pod Namespace"]
             PodVeth["eth0 (Pod IP: 10.233.64.9)"]
             AppContainer["Application Container (Listens on port 80)"]
-            VethHost -->|2. Traverses veth pipe| PodVeth
-            PodVeth -->|3. Delivered to container port| AppContainer
+            VethHost -->|"2. Traverses veth pipe"| PodVeth
+            PodVeth -->|"3. Delivered to container port"| AppContainer
         end
     end
 ```
