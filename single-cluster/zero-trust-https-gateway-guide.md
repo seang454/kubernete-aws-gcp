@@ -401,3 +401,255 @@ kubectl logs -n traefik -l app=cloudflared -f
 | DNS-01 Challenge stuck in `Pending` | Cloudflare API token permissions insufficient | Ensure token has **Zone > DNS > Edit** and **Zone > Zone > Read** permissions specifically scoped to `seang.shop`. |
 | HTTPRoute returns `503 Service Unavailable` | Backend Pod not ready or service name mismatch | Check `kubectl get svc -n monitoring prometheus-grafana` and `kubectl get svc -n opensearch opensearch-dashboards`. |
 | HTTPRoute returns `404 Not Found` | Domain header mismatch or listener namespace policy | Ensure `traefik-gateway` has `allowedRoutes.namespaces.from: All` (already configured in this setup). |
+
+---
+
+## 🧠 6. Architectural Deep Dive: Gateway API vs. Traefik CRDs & Middleware Integration
+
+### 1. Specification vs. Engine: How They Relate
+
+An important distinction when designing Kubernetes ingress is that **Gateway API and Traefik are not competing alternatives—they work together**:
+
+* **Kubernetes Gateway API (`gateway.networking.k8s.io`)** is the **Specification (Rulebook / Interface)** created by Kubernetes SIG-Network. It defines standard schemas (`Gateway`, `HTTPRoute`, `TCPRoute`, `TLSRoute`). It cannot route network packets by itself.
+* **Traefik** is the **Proxy Engine (The Worker)**. Traefik is the Go application that executes routing rules, terminates TLS, and forwards bytes. In this cluster, **Traefik is the controller implementing the Gateway API specification**.
+
+Traefik also maintains its own proprietary CRDs (`traefik.io/v1alpha1`) created before Gateway API matured.
+
+```
+┌────────────────────────────────────────────────────────┐
+│              Kubernetes Gateway API (v1)               │
+│    (Standard Interface: HTTPRoute, TCPRoute, etc.)     │
+└──────────────────────────┬─────────────────────────────┘
+                           │ implemented by
+┌──────────────────────────▼─────────────────────────────┐
+│                 Traefik Proxy Engine                   │
+│        (Data Plane: routes packets, manages TLS)       │
+└──────────────────────────▲─────────────────────────────┘
+                           │ also supports
+┌──────────────────────────┴─────────────────────────────┐
+│               Traefik Proprietary CRDs                 │
+│         (IngressRoute, IngressRouteTCP, Middleware)    │
+└────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 2. Side-by-Side Comparison
+
+| Feature | Kubernetes Gateway API (`HTTPRoute`, `TCPRoute`) | Traefik Proprietary CRDs (`IngressRoute`, `IngressRouteTCP`) |
+| :--- | :--- | :--- |
+| **Origin** | Official Kubernetes SIG-Network standard | Traefik-proprietary Custom Resource Definition |
+| **Portability** | **100% Portable** across controllers (Traefik, Envoy, Istio, Cilium) | **Locked to Traefik** (requires complete rewrite if changing ingress) |
+| **Resource Kinds** | `HTTPRoute`, `GRPCRoute`, `TLSRoute`, `TCPRoute`, `UDPRoute` | `IngressRoute`, `IngressRouteTCP`, `IngressRouteUDP` |
+| **Traefik Middleware Support** | Integrated via `ExtensionRef` filter | Native via `spec.routes.middlewares` |
+| **Industry Direction** | **The official standard for Kubernetes networking (v1 GA)** | Maintained for backward compatibility and Traefik-specific features |
+
+#### Resource Mapping
+```
+┌─────────────────────────────────┐       ┌─────────────────────────────────┐
+│ Kubernetes Gateway API (Standard)│       │ Traefik Proprietary CRDs        │
+├─────────────────────────────────┤       ├─────────────────────────────────┤
+│ HTTPRoute                       │ <===> │ IngressRoute (HTTP/HTTPS)       │
+│ TCPRoute                        │ <===> │ IngressRouteTCP (Raw TCP)       │
+│ UDPRoute                        │ <===> │ IngressRouteUDP (Raw UDP)       │
+│ TLSRoute (SNI Passthrough)      │ <===> │ IngressRouteTCP (with tls: true)│
+└─────────────────────────────────┘       └─────────────────────────────────┘
+```
+
+---
+
+### 3. How to Choose Which One to Use
+
+```mermaid
+flowchart TD
+    start{"What are you routing?"} --> proto{"HTTP/Web UI or TCP/UDP?"}
+
+    proto -->|HTTP / Web UIs<br>Grafana, OpenSearch, etc.| needMiddleware{"Do you require Traefik-specific Middlewares?<br>e.g. Traefik ForwardAuth, Plugin Marketplace"}
+    
+    needMiddleware -->|No - Standard routing & TLS| useHTTPRoute["✅ Use Gateway API: HTTPRoute<br>(Recommended & Future-Proof)"]
+    needMiddleware -->|Yes - Deep Traefik features| useIngressRoute["Use Traefik: IngressRoute<br>(Or attach Middleware to HTTPRoute via ExtensionRef)"]
+
+    proto -->|Raw TCP / UDP<br>e.g. Kafka, Database, DNS| portability{"Is multi-ingress controller portability important?"}
+    
+    portability -->|Yes| useTCPRoute["✅ Use Gateway API: TCPRoute / UDPRoute"]
+    portability -->|No - Traefik only| useIngressRouteTCP["Use Traefik: IngressRouteTCP / UDP"]
+```
+
+#### Choose Kubernetes Gateway API (`HTTPRoute`, `TCPRoute`) if:
+1. **Future-Proofing**: Gateway API is the official successor to Kubernetes `Ingress`.
+2. **Zero Vendor Lock-In**: Routes continue functioning if you migrate to Envoy Gateway, Istio, or Cilium.
+3. **Standard Dashboard Routing**: Host header matching, path routing, and TLS termination for Grafana, Prometheus, OpenSearch, and Jaeger are fully native.
+
+#### Choose Traefik Custom CRDs (`IngressRoute`, `IngressRouteTCP`) only if:
+1. You depend heavily on Traefik-specific features like ForwardAuth, CircuitBreakers, or custom Go plugins.
+2. You need complex TCP SNI passthrough rules relying specifically on Traefik `TLSOption` CRDs (e.g. custom mTLS cipher suites).
+
+---
+
+### 4. Feature Coverage Matrix
+
+| Feature | Gateway API (`HTTPRoute`) | Traefik CRD (`IngressRoute`) |
+| :--- | :---: | :---: |
+| **Host & Path Matching** (Prefix, Exact, Regex) | ✅ **Native** | ✅ Native |
+| **Header & Query Param Matching** | ✅ **Native** | ✅ Native |
+| **Header Manipulation** (Add, Set, Remove) | ✅ **Native** (`RequestHeaderModifier`) | ✅ via `Middleware` |
+| **URL Rewrites & Path Prefixes** | ✅ **Native** (`URLRewrite`) | ✅ via `Middleware` |
+| **HTTP to HTTPS Redirects** | ✅ **Native** (`RequestRedirect`) | ✅ via `Middleware` |
+| **Traffic Splitting / Canary Deployments** | ✅ **Native** (via `weight`) | ✅ Native |
+| **Traffic Mirroring / Shadowing** | ✅ **Native** (`RequestMirror`) | ✅ Native |
+| **Multi-Namespace Routing** | ✅ **Native** (`parentRefs`) | ⚠️ Requires special Traefik flags |
+| **gRPC Native Routing** | ✅ **Native** (`GRPCRoute`) | ⚠️ Configured as HTTP2 |
+| **Rate Limiting** | 🔌 **Supported via `ExtensionRef`** | ✅ Built-in Traefik `Middleware` |
+| **Basic Auth / Digest Auth** | 🔌 **Supported via `ExtensionRef`** | ✅ Built-in Traefik `Middleware` |
+| **Forward Authentication (SSO / OAuth2)** | 🔌 **Supported via `ExtensionRef`** | ✅ Built-in Traefik `Middleware` |
+| **Traefik Plugin Marketplace (Custom Go Plugins)** | 🔌 **Supported via `ExtensionRef`** | ✅ Built-in |
+
+---
+
+### 5. Integrating Traefik Middlewares into Gateway API (`ExtensionRef`)
+
+You do **not** have to abandon Gateway API to use Traefik's advanced features. The Gateway API specification provides a native extension mechanism called **`ExtensionRef`** that allows standard `HTTPRoute` rules to invoke Traefik's proprietary `Middleware` engine.
+
+```mermaid
+flowchart LR
+    route["Standard Gateway API<br><code>kind: HTTPRoute</code><br><i>filters.type: ExtensionRef</i>"]
+    -->|References| mw["Traefik CRD<br><code>kind: Middleware</code><br><i>(RateLimit / Auth / SSO / Plugin)</i>"]
+    -->|Executed by| engine["🚦 Traefik Proxy Engine"]
+```
+
+#### A. Rate Limiting Example
+
+**Step 1: Declare the Traefik RateLimit Middleware**
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: limit-requests
+  namespace: monitoring
+spec:
+  rateLimit:
+    average: 100   # 100 requests per second
+    burst: 50
+```
+
+**Step 2: Attach it to the standard `HTTPRoute`**
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana-httproute
+  namespace: monitoring
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+  hostnames:
+    - "grafana.seang.shop"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: limit-requests
+      backendRefs:
+        - name: prometheus-grafana
+          port: 80
+```
+
+#### B. Basic Authentication Example
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ui-users-secret
+  namespace: monitoring
+type: Opaque
+stringData:
+  users: |
+    admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: basic-auth-middleware
+  namespace: monitoring
+spec:
+  basicAuth:
+    secret: ui-users-secret
+---
+# In HTTPRoute rules.filters:
+filters:
+  - type: ExtensionRef
+    extensionRef:
+      group: traefik.io
+      kind: Middleware
+      name: basic-auth-middleware
+```
+
+#### C. Forward Authentication (SSO / OAuth2 with Authelia or Keycloak)
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: sso-forward-auth
+  namespace: monitoring
+spec:
+  forwardAuth:
+    address: "http://authelia.auth.svc.cluster.local:9091/api/verify?rd=https://auth.seang.shop"
+    trustForwardHeader: true
+    authResponseHeaders:
+      - "Remote-User"
+      - "Remote-Groups"
+---
+# In HTTPRoute rules.filters:
+filters:
+  - type: ExtensionRef
+    extensionRef:
+      group: traefik.io
+      kind: Middleware
+      name: sso-forward-auth
+```
+
+#### D. Traefik Marketplace Custom Plugins
+
+Traefik plugins (from [plugins.traefik.io](https://plugins.traefik.io)) are configured as Middlewares and attached using the exact same `ExtensionRef` syntax:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: geo-block
+  namespace: monitoring
+spec:
+  plugin:
+    geoblock:
+      allowLocal: true
+      countries:
+        - US
+        - KH
+---
+# In HTTPRoute rules.filters:
+filters:
+  - type: ExtensionRef
+    extensionRef:
+      group: traefik.io
+      kind: Middleware
+      name: geo-block
+```
+
+---
+
+### 6. Edge Alternative: Cloudflare Zero Trust Access
+
+Because this cluster is already fronted by **Cloudflare Tunnel**, you have an even simpler alternative to in-cluster authentication and rate limiting:
+
+* **Cloudflare Access (Zero Trust)**: You can enforce Google, GitHub, or Okta SSO logins and rate limiting directly at **Cloudflare's Anycast Edge** before requests ever enter the tunnel or touch the cluster.
+* **Benefits**: No in-cluster authentication pods (like Authelia/Keycloak) or secrets to manage, and unauthorized requests are blocked before consuming any cluster bandwidth or compute resources.
+

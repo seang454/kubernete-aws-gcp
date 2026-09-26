@@ -117,7 +117,7 @@ data "aws_ami" "ubuntu" {
 }
 
 data "aws_ami" "ubuntu_arm64" {
-  count       = var.enabled ? 1 : 0
+  count       = var.enabled && (var.worker_count + var.control_plane_count) > 0 && (var.ami_id == null || var.ami_id == "") ? 1 : 0
   most_recent = true
   owners      = ["099720109477"] # Canonical
 
@@ -135,11 +135,24 @@ data "aws_ami" "ubuntu_arm64" {
   }
 }
 
+data "aws_ami" "specified" {
+  count = var.enabled && (var.worker_count + var.control_plane_count) > 0 && var.ami_id != null && var.ami_id != "" ? 1 : 0
+
+  filter {
+    name   = "image-id"
+    values = [var.ami_id]
+  }
+}
+
 locals {
   is_arm_machine = anytrue([
     for m in concat(var.control_plane_machine_types, var.worker_machine_types) :
     can(regex("^(t4g|m6g|c6g|r6g|c7g|m7g|r7g|a1|im4gn|is4gen)\\.", m))
   ])
+
+  specified_ami_arch = length(data.aws_ami.specified) > 0 ? data.aws_ami.specified[0].architecture : null
+  display_ami_arch   = length(data.aws_ami.specified) > 0 ? data.aws_ami.specified[0].architecture : "unknown"
+  display_ami_id     = var.ami_id != null && var.ami_id != "" ? var.ami_id : "auto"
 
   resolved_ami_id = var.ami_id != null && var.ami_id != "" ? var.ami_id : (
     local.is_arm_machine ? try(data.aws_ami.ubuntu_arm64[0].id, "") : try(data.aws_ami.ubuntu[0].id, "")
@@ -416,16 +429,16 @@ resource "terraform_data" "preflight" {
 
     precondition {
       condition = (
-        !local.is_arm_machine || var.ami_id == null || var.ami_id == "" || var.ami_id == try(data.aws_ami.ubuntu_arm64[0].id, "")
+        !local.is_arm_machine || local.specified_ami_arch == null || local.specified_ami_arch == "arm64"
       )
-      error_message = "Architecture Mismatch Guard: ARM/Graviton machine types (such as t4g.*, m6g.*) require an ARM64 AMI (such as ami-0f78fc0711eeb6f28). You cannot pair ARM machines with an x86 AMI."
+      error_message = "Architecture Mismatch Guard: ARM/Graviton machine types (such as t4g.*, m6g.*) require an ARM64 AMI. The specified AMI (${local.display_ami_id}) has architecture '${local.display_ami_arch}'. You cannot pair ARM machines with an x86 AMI."
     }
 
     precondition {
       condition = (
-        local.is_arm_machine || var.ami_id == null || var.ami_id == "" || var.ami_id != try(data.aws_ami.ubuntu_arm64[0].id, "")
+        local.is_arm_machine || local.specified_ami_arch == null || local.specified_ami_arch == "x86_64"
       )
-      error_message = "Architecture Mismatch Guard: x86 machine types (such as t3.*, m5.*) cannot be used with an ARM64 AMI (ami-0f78fc0711eeb6f28). Use an x86_64 AMI (such as ami-0ba4172b23e57d5a8)."
+      error_message = "Architecture Mismatch Guard: x86 machine types (such as t3.*, m5.*) require an x86_64 AMI. The specified AMI (${local.display_ami_id}) has architecture '${local.display_ami_arch}'. Use an x86_64 AMI."
     }
   }
 }

@@ -91,7 +91,7 @@ aws_availability_zones         = []
 aws_auto_discover_up_zones     = true
 aws_blocked_availability_zones = []
 
-# Specific AWS AMI image (Ubuntu 24.04 LTS x86_64 in ap-southeast-1)
+# Specific AWS AMI image (Ubuntu 24.04 LTS ARM64 in ap-southeast-1)
 aws_worker_ami_id = "ami-0f78fc0711eeb6f28"
 
 # Machine types for AWS nodes (conforms to AWS Account tier restrictions)
