@@ -90,6 +90,10 @@ spec:
         app.kubernetes.io/name: {{ node.name }}
         app.kubernetes.io/part-of: kafka-cluster
     spec:
+      enableServiceLinks: false
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
       containers:
         - name: kafka
           image: {{ kafka_image | default('confluentinc/cp-kafka:7.8.0') }}

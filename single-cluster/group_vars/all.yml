@@ -23,10 +23,10 @@ enable_jaeger: true              # Traces (Jaeger all-in-one & query UI)
 enable_alloy: true               # Universal Telemetry Shipper (Alloy DaemonSet)
 enable_opentelemetry: false      # Legacy collector (Replaced by Alloy)
 enable_opensearch: true          # Full-Text Search, Audit Logs & SIEM (OpenSearch + Dashboards)
-enable_kafka: false              # Resilience Buffer (Confluent Kafka 7.8.0 3-node KRaft)
+enable_kafka: true              # Resilience Buffer (Confluent Kafka 7.8.0 3-node KRaft)
 enable_schema_registry: false    # Confluent Schema Registry 7.8.0
 enable_debezium: false           # Debezium Kafka Connect 3.4.0 CDC
-enable_kafka_ui: false           # Provectus Kafka UI Web Dashboard
+enable_kafka_ui: true           # Provectus Kafka UI Web Dashboard
 enable_grafana_dashboards: true  # Curated Grafana Dashboards
 
 # ------------------------------------------------------------------------------
@@ -398,4 +398,3 @@ grafana_backend_port: 80
 prometheus_backend_service: "prometheus-kube-prometheus-prometheus"
 prometheus_backend_port: 9090
 opensearch_dashboards_service_name: "opensearch-dashboards"
-
