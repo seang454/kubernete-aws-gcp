@@ -398,4 +398,3 @@ grafana_backend_port: 80
 prometheus_backend_service: "prometheus-kube-prometheus-prometheus"
 prometheus_backend_port: 9090
 opensearch_dashboards_service_name: "opensearch-dashboards"
-

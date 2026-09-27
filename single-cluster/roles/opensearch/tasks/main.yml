@@ -5,6 +5,8 @@
   kubernetes.core.helm_repository:
     name: opensearch
     repo_url: https://opensearch-project.github.io/helm-charts/
+  check_mode: false
+
 
 - name: Ensure OpenSearch namespace exists
   kubernetes.core.k8s:
