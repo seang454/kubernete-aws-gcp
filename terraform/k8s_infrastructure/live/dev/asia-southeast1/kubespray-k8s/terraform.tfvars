@@ -150,8 +150,8 @@ digitalocean_worker_data_disk_size_gb        = 0 # Set > 0 for worker secondary 
 # - Tri-Cloud HA Quorum: gcp_control_plane_count = 1, aws_control_plane_count = 1, digitalocean_control_plane_count = 1
 # - Split Workers:       gcp_worker_count = 2, aws_worker_count = 2, digitalocean_worker_count = 2
 # ---------------------------------------------------------------------------
-gcp_control_plane_count          = 4
-aws_control_plane_count          = 1
+gcp_control_plane_count          = 5
+aws_control_plane_count          = 0
 digitalocean_control_plane_count = 0 # Set to 1, 2, or 3 for DigitalOcean master nodes!
 
 gcp_worker_count          = 0
