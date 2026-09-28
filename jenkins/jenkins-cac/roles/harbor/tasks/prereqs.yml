@@ -1,0 +1,34 @@
+---
+- name: (Debian/Ubuntu) Install prerequisite packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - tar
+      - gnupg
+      - ca-certificates
+      - python3-pip
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: (RHEL/Fedora) Install prerequisite packages
+  ansible.builtin.dnf:
+    name:
+      - curl
+      - tar
+      - gnupg2
+      - ca-certificates
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Create Harbor working directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ harbor_install_parent_dir }}"
+    - "{{ harbor_download_tmp_dir }}"
+    - "{{ harbor_data_volume }}"
+    - "{{ harbor_log_location }}"

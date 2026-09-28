@@ -1,0 +1,35 @@
+---
+- name: Create shared service Python virtual environment
+  ansible.builtin.pip:
+    name: "{{ service_config_python_bootstrap_packages }}"
+    state: latest
+    virtualenv: "{{ service_config_venv }}"
+    virtualenv_command: python3 -m venv
+
+- name: Install shared Python libraries into service virtual environment
+  ansible.builtin.pip:
+    name: "{{ service_config_python_packages }}"
+    state: present
+    virtualenv: "{{ service_config_venv }}"
+
+- name: Link Ansible commands from service virtual environment
+  ansible.builtin.file:
+    src: "{{ service_config_venv }}/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - ansible
+    - ansible-playbook
+  when: service_config_link_ansible_commands | bool
+
+- name: Use shared service virtual environment for later Ansible modules
+  ansible.builtin.set_fact:
+    ansible_python_interpreter: "{{ service_config_venv }}/bin/python"
+  when: service_config_set_ansible_python_interpreter | bool
+
+- name: Reset connection after changing Ansible Python interpreter
+  when: service_config_set_ansible_python_interpreter | bool
+  block:
+    - name: Reset connection after changing Ansible Python interpreter
+      ansible.builtin.meta: reset_connection

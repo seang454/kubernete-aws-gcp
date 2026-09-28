@@ -1,0 +1,6 @@
+---
+- name: Configure DefectDojo server
+  hosts: defectdojo
+  become: true
+  roles:
+    - defectdojo

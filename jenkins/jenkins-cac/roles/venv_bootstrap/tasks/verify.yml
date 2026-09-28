@@ -1,0 +1,26 @@
+---
+- name: Verify shared service Python virtual environment
+  ansible.builtin.command:
+    cmd: "{{ service_config_venv }}/bin/python -c \"import docker, psycopg2, requests; print('service venv ok')\""
+  register: service_config_venv_check
+  changed_when: false
+
+- name: Verify Docker command
+  ansible.builtin.command: docker --version
+  register: service_config_docker_check
+  changed_when: false
+  failed_when: false
+
+- name: Verify glab command
+  ansible.builtin.command: glab --version
+  register: service_config_glab_check
+  changed_when: false
+  failed_when: false
+  when: service_config_install_glab | bool
+
+- name: Show bootstrap verification summary
+  ansible.builtin.debug:
+    msg:
+      - "{{ service_config_venv_check.stdout }}"
+      - "Docker: {{ service_config_docker_check.stdout | default('not found') }}"
+      - "glab: {{ service_config_glab_check.stdout | default('not installed') }}"

@@ -1,0 +1,29 @@
+---
+# DefectDojo version (Docker image tag)
+defectdojo_version: "3.1.301"
+defectdojo_install_dir: /opt/defectdojo
+defectdojo_port: 8080
+
+# Domain and HTTPS
+defectdojo_domain: "defectdojo.example.com"
+certbot_email: "pengseangsim210@gmail.com"
+defectdojo_enable_https: true
+certbot_staging: false
+certbot_redirect_http_to_https: true
+defectdojo_certbot_verify_renewal: false
+
+# Container Database Settings
+defectdojo_db_name: defectdojo
+defectdojo_db_user: defectdojo
+defectdojo_db_password: "defectdojodb@12345"
+
+# Django Application & Superuser
+defectdojo_secret_key: "d3f3ctD0j0-S3cr3tK3y!Str0ng&S3cur3#2024@Ansibl3-R0l3-K3y!"
+defectdojo_credential_aes_256_key: "&91a*agLqesc*0DJ+2*bAbsUZfR*4nLw"
+defectdojo_admin_user: admin
+defectdojo_admin_password: "defectdojoadmin@12345"
+defectdojo_admin_email: "pengseangsim210@gmail.com"
+
+# System User
+defectdojo_user: defectdojo
+defectdojo_group: defectdojo

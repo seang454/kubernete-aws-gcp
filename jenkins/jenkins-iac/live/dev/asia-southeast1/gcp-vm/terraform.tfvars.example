@@ -1,0 +1,225 @@
+project_id = "YOUR_GCP_PROJECT_ID"
+region     = "asia-southeast1"
+zone       = "asia-southeast1-a"
+
+# Number of VMs to create. Use 2 when DNS records use vm_index = 2.
+instance_count = 1
+
+# Terraform spreads VMs across these zones in order.
+# Example with 3 VMs: VM 1 -> a, VM 2 -> b, VM 3 -> c.
+zones = [
+  "asia-southeast1-a",
+  "asia-southeast1-b",
+  "asia-southeast1-c"
+]
+
+# Dynamic zone discovery asks GCP for zones with status UP before creating the VM plan.
+auto_discover_up_zones = true
+
+# Terraform can use these regions if preferred zones are down or blocked.
+fallback_regions = [
+  "asia-east1",
+  "asia-northeast1"
+]
+
+# If GCP returns ZONE_RESOURCE_POOL_EXHAUSTED or a zone is down,
+# add the bad zone or region here and rerun terraform apply.
+# To remap to another region, also add zones from that other region to zones above.
+blocked_zones   = []
+blocked_regions = []
+
+# Option 1, recommended: leave this empty and run:
+# gcloud auth application-default login
+gcp_adc_file = ""
+
+# Option 2: explicitly point Terraform to an ADC JSON file.
+# Linux/WSL: "~" dynamically means the current user's home directory.
+# gcp_adc_file = "~/.config/gcloud/application_default_credentials.json"
+#
+# Windows default ADC path example:
+# gcp_adc_file = "C:/Users/M/AppData/Roaming/gcloud/application_default_credentials.json"
+
+# GCP VM names cannot use underscores. Terraform creates gcp-vm-1, gcp-vm-2, ...
+name = "gcp-vm"
+
+# Machine types are matched by VM index.
+# 1 value  = all VMs use this type.
+# 2 values = VM 1 uses value 1, VM 2 and later use value 2.
+# 3 values = VM 1 uses value 1, VM 2 uses value 2, VM 3 and later use value 3.
+machine_types = [
+  "e2-standard-2"
+]
+
+# RUNNING keeps Terraform-managed VMs up. TERMINATED stops them.
+desired_status = "RUNNING"
+
+network    = "default"
+subnetwork = null
+
+ssh_user            = "ubuntu"
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# Terraform writes the VM external IPs into this Ansible inventory after apply.
+ansible_inventory_path       = "../../../../../ansible_service_config/inventories/dev/hosts.ini"
+ansible_ssh_private_key_path = "~/.ssh/id_rsa"
+
+# Fallback only. When Cloudflare DNS is enabled, Terraform derives groups from
+# cloudflare_dns_records instead.
+ansible_inventory_groups = ["defectdojo", "harbor", "jenkins", "nexus", "sonarqube", "trivy", "vault"]
+
+# Optional explicit map. Use this if you want dynamic per-service inventory
+# before enabling Cloudflare DNS. Leave empty to derive from Cloudflare records.
+ansible_service_targets = {}
+
+enable_ansible_group_vars_domains = true
+ansible_group_vars_path           = "../../../../../ansible_service_config/group_vars"
+
+# Cloudflare DNS is disabled until you set your real zone ID and token.
+# Prefer setting CLOUDFLARE_API_TOKEN in your shell instead of putting a token here.
+enable_cloudflare_dns = false
+cloudflare_zone_id    = ""
+cloudflare_api_token  = ""
+
+# vm_index is one-based:
+# vm_index = 1 uses gcp-vm-1 external IP.
+# vm_index = 2 uses gcp-vm-2 external IP.
+# One VM can receive many domains.
+cloudflare_dns_records = {
+  defectdojo = {
+    hostname = "defectdojo.seang.shop"
+    type     = "A"
+    vm_index = 2
+    proxied  = false
+  }
+
+  harbor = {
+    hostname = "harbor.seang.shop"
+    type     = "A"
+    vm_index = 2
+    proxied  = false
+  }
+
+  jenkins = {
+    hostname = "jenkins.seang.shop"
+    type     = "A"
+    vm_index = 1
+    proxied  = false
+  }
+
+  sonarqube = {
+    hostname = "sonarqube.seang.shop"
+    type     = "A"
+    vm_index = 1
+    proxied  = false
+  }
+
+  nexus = {
+    hostname = "nexus.seang.shop"
+    type     = "A"
+    vm_index = 2
+    proxied  = false
+  }
+
+  nexus_docker = {
+    hostname             = "docker.seang.shop"
+    type                 = "A"
+    vm_index             = 2
+    proxied              = false
+    create_ansible_group = false
+  }
+
+  trivy = {
+    hostname = "trivy.seang.shop"
+    type     = "A"
+    vm_index = 2
+    proxied  = false
+  }
+
+  vault = {
+    hostname = "vault.seang.shop"
+    type     = "A"
+    vm_index = 2
+    proxied  = false
+  }
+
+  defectdojo_alias = {
+    hostname = "dojo.seang.shop"
+    type     = "CNAME"
+    content  = "defectdojo.seang.shop"
+    proxied  = false
+  }
+
+  jenkins_alias = {
+    hostname = "ci.seang.shop"
+    type     = "CNAME"
+    content  = "jenkins.seang.shop"
+    proxied  = false
+  }
+
+  nexus_alias = {
+    hostname = "repo.seang.shop"
+    type     = "CNAME"
+    content  = "nexus.seang.shop"
+    proxied  = false
+  }
+
+  nexus_docker_alias = {
+    hostname = "registry.seang.shop"
+    type     = "CNAME"
+    content  = "docker.seang.shop"
+    proxied  = false
+  }
+
+  sonarqube_alias = {
+    hostname = "quality.seang.shop"
+    type     = "CNAME"
+    content  = "sonarqube.seang.shop"
+    proxied  = false
+  }
+
+  trivy_alias = {
+    hostname = "scanner.seang.shop"
+    type     = "CNAME"
+    content  = "trivy.seang.shop"
+    proxied  = false
+  }
+
+  vault_alias = {
+    hostname = "secrets.seang.shop"
+    type     = "CNAME"
+    content  = "vault.seang.shop"
+    proxied  = false
+  }
+
+  # Example for the second machine. Set instance_count = 2 before enabling this.
+  # jenkins_node_2 = {
+  #   hostname = "jenkins-2.seang.shop"
+  #   vm_index = 2
+  #   proxied  = false
+  # }
+
+  # Example for a manually specified IP instead of a Terraform-created VM.
+  # external_service = {
+  #   hostname = "external.seang.shop"
+  #   content  = "203.0.113.10"
+  #   proxied  = false
+  # }
+}
+
+# GCP firewall ports used by the Ansible service roles:
+# - 22: SSH for Ansible. Restrict this to your public IP for real use.
+# - 80: Nginx HTTP and Certbot validation.
+# - 443: Nginx HTTPS for every service domain.
+#
+# Backend ports such as SonarQube 9000, Jenkins 8080, Nexus 8081/8082,
+# Trivy 4954, and Vault 8200 stay behind Nginx and are not opened by GCP.
+ssh_source_ranges            = ["0.0.0.0/0"]
+public_service_ports         = [80, 443]
+public_service_source_ranges = ["0.0.0.0/0"]
+
+# Add only ports that truly need direct remote access.
+# Example for Jenkins inbound agents:
+# additional_service_ports         = [50000]
+# additional_service_source_ranges = ["YOUR_JENKINS_AGENT_IP/32"]
+additional_service_ports         = []
+additional_service_source_ranges = []

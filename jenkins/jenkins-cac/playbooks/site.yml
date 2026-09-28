@@ -1,0 +1,48 @@
+---
+- name: Bootstrap shared service environment
+  hosts: all
+  become: true
+  roles:
+    - venv_bootstrap
+
+- name: Configure SonarQube servers
+  hosts: sonarqube
+  become: true
+  roles:
+    - sonarqube
+
+- name: Configure Harbor servers
+  hosts: harbor
+  become: true
+  roles:
+    - harbor
+
+- name: Configure Jenkins servers
+  hosts: jenkins
+  become: true
+  roles:
+    - jenkins
+
+- name: Configure Nexus servers
+  hosts: nexus
+  become: true
+  roles:
+    - nexus
+
+- name: Configure DefectDojo servers
+  hosts: defectdojo
+  become: true
+  roles:
+    - defectdojo
+
+- name: Configure Trivy scanners
+  hosts: trivy
+  become: true
+  roles:
+    - trivy
+
+- name: Configure Vault servers
+  hosts: vault
+  become: true
+  roles:
+    - vault

@@ -1,0 +1,8 @@
+---
+- name: Create DefectDojo log directory
+  ansible.builtin.file:
+    path: /var/log/defectdojo
+    state: directory
+    owner: "{{ defectdojo_user }}"
+    group: "{{ defectdojo_group }}"
+    mode: "0755"

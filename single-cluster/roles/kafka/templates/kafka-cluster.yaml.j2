@@ -14,6 +14,7 @@ metadata:
     app.kubernetes.io/part-of: kafka-cluster
 spec:
   type: ClusterIP
+  publishNotReadyAddresses: true
   ports:
     - name: plaintext
       port: {{ kafka_plaintext_port | default(9090) }}
@@ -55,6 +56,7 @@ metadata:
     app.kubernetes.io/part-of: kafka-cluster
 spec:
   type: ClusterIP
+  publishNotReadyAddresses: true
   ports:
     - name: plaintext
       port: {{ kafka_plaintext_port | default(9090) }}
@@ -114,10 +116,16 @@ spec:
               value: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
             - name: KAFKA_CONTROLLER_QUORUM_VOTERS
               value: "{{ kafka_controller_quorum_voters }}"
+            - name: KAFKA_CONTROLLER_QUORUM_ELECTION_TIMEOUT_MS
+              value: "5000"
+            - name: KAFKA_CONTROLLER_QUORUM_FETCH_TIMEOUT_MS
+              value: "10000"
+            - name: KAFKA_CONTROLLER_QUORUM_ELECTION_BACKOFF_MAX_MS
+              value: "3000"
             - name: KAFKA_LISTENERS
               value: "PLAINTEXT://:{{ kafka_plaintext_port | default(9090) }},CONTROLLER://:{{ kafka_controller_port | default(9091) }},EXTERNAL://:{{ kafka_external_port | default(9092) }}"
             - name: KAFKA_ADVERTISED_LISTENERS
-              value: "PLAINTEXT://{{ node.name }}.{{ kafka_namespace | default('kafka') }}.svc.cluster.local:{{ kafka_plaintext_port | default(9090) }},EXTERNAL://{{ node.name }}:{{ kafka_external_port | default(9092) }}"
+              value: "PLAINTEXT://{{ node.name }}.{{ kafka_namespace | default('kafka') }}.svc.{{ k8s_cluster_domain | default('k8scluster') }}:{{ kafka_plaintext_port | default(9090) }},EXTERNAL://{{ node.name }}:{{ kafka_external_port | default(9092) }}"
             - name: KAFKA_INTER_BROKER_LISTENER_NAME
               value: "PLAINTEXT"
             - name: KAFKA_CONTROLLER_LISTENER_NAMES

@@ -1,0 +1,25 @@
+---
+galaxy_info:
+  role_name: trivy
+  author: Sunil
+  description: Install Aqua Security Trivy scanner on Ubuntu/Debian.
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - trivy
+    - security
+    - vulnerability
+    - scanner
+    - devsecops
+dependencies:
+  - role: venv_bootstrap

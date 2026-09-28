@@ -1,0 +1,371 @@
+---
+- name: Validate supported OS family
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] in ['Debian']
+      - trivy_install_method in ['apt', 'binary']
+    fail_msg: "This role supports Debian/Ubuntu and trivy_install_method values of apt or binary."
+
+- name: Validate Trivy HTTPS settings
+  ansible.builtin.assert:
+    that:
+      - trivy_server_domain is defined
+      - trivy_server_domain != "trivy.example.com"
+      - certbot_email is defined
+      - certbot_email != "admin@example.com"
+    fail_msg: "Set trivy_server_domain and certbot_email before enabling Trivy HTTPS."
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Download Trivy GPG key
+  ansible.builtin.get_url:
+    url: "{{ trivy_apt_key_url }}"
+    dest: "/tmp/trivy-public.key"
+    mode: "0644"
+  become: true
+  when: trivy_install_method == 'apt'
+
+- name: Convert Trivy GPG key to keyring
+  ansible.builtin.command:
+    cmd: "gpg --dearmor -o {{ trivy_apt_keyring_path }} /tmp/trivy-public.key"
+    creates: "{{ trivy_apt_keyring_path }}"
+  become: true
+  when: trivy_install_method == 'apt'
+
+- name: Set keyring permissions
+  ansible.builtin.file:
+    path: "{{ trivy_apt_keyring_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: trivy_install_method == 'apt'
+
+- name: Add Trivy APT repository
+  ansible.builtin.copy:
+    dest: "{{ trivy_apt_repo_file }}"
+    content: "{{ trivy_apt_repository }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Update apt cache
+  when: trivy_install_method == 'apt'
+
+- name: Flush handlers after adding repository
+  ansible.builtin.meta: flush_handlers
+  when: trivy_install_method == 'apt'
+
+- name: Install latest Trivy package
+  ansible.builtin.apt:
+    name: "{{ trivy_package_name }}"
+    state: present
+    update_cache: true
+  become: true
+  when:
+    - trivy_install_method == 'apt'
+    - trivy_version | length == 0
+
+- name: Install specific Trivy package version
+  ansible.builtin.apt:
+    name: "{{ trivy_package_name }}={{ trivy_version }}"
+    state: present
+    update_cache: true
+  become: true
+  when:
+    - trivy_install_method == 'apt'
+    - trivy_version | length > 0
+
+- name: Resolve latest Trivy binary version
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/aquasecurity/trivy/releases/latest
+    return_content: true
+  register: trivy_latest_release
+  when:
+    - trivy_install_method == 'binary'
+    - trivy_binary_version == 'latest'
+
+- name: Set resolved Trivy binary version
+  ansible.builtin.set_fact:
+    trivy_resolved_binary_version: >-
+      {{
+        trivy_latest_release.json.tag_name | regex_replace('^v', '')
+        if trivy_binary_version == 'latest'
+        else trivy_binary_version
+      }}
+  when: trivy_install_method == 'binary'
+
+- name: Set Trivy binary architecture
+  ansible.builtin.set_fact:
+    trivy_binary_arch: "{{ trivy_binary_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+  when: trivy_install_method == 'binary'
+
+- name: Download Trivy binary archive
+  ansible.builtin.get_url:
+    url: "https://github.com/aquasecurity/trivy/releases/download/v{{ trivy_resolved_binary_version }}/trivy_{{ trivy_resolved_binary_version }}_Linux-{{ trivy_binary_arch }}.tar.gz"
+    dest: "/tmp/trivy-{{ trivy_resolved_binary_version }}.tar.gz"
+    mode: "0644"
+  become: true
+  when: trivy_install_method == 'binary'
+
+- name: Create Trivy binary extract directory
+  ansible.builtin.file:
+    path: /tmp/trivy-binary
+    state: directory
+    mode: "0755"
+  become: true
+  when: trivy_install_method == 'binary'
+
+- name: Extract Trivy binary archive
+  ansible.builtin.unarchive:
+    src: "/tmp/trivy-{{ trivy_resolved_binary_version }}.tar.gz"
+    dest: /tmp/trivy-binary
+    remote_src: true
+    creates: /tmp/trivy-binary/trivy
+  become: true
+  when: trivy_install_method == 'binary'
+
+- name: Install Trivy binary
+  ansible.builtin.copy:
+    src: /tmp/trivy-binary/trivy
+    dest: "{{ trivy_binary_install_dir }}/trivy"
+    mode: "0755"
+    remote_src: true
+  become: true
+  when: trivy_install_method == 'binary'
+
+- name: Create Trivy cache directory
+  ansible.builtin.file:
+    path: "{{ trivy_cache_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: trivy_create_cache_dir | bool
+
+- name: Install Trivy database update cron
+  ansible.builtin.cron:
+    name: "Update Trivy vulnerability database"
+    user: root
+    minute: "{{ trivy_db_update_cron_minute }}"
+    hour: "{{ trivy_db_update_cron_hour }}"
+    job: "{{ trivy_db_update_command }} >/var/log/trivy-db-update.log 2>&1"
+    state: present
+  become: true
+  when: trivy_enable_db_update_cron | bool
+
+- name: Remove Trivy database update cron
+  ansible.builtin.cron:
+    name: "Update Trivy vulnerability database"
+    user: root
+    state: absent
+  become: true
+  when: not trivy_enable_db_update_cron | bool
+
+- name: Install Trivy server systemd service
+  ansible.builtin.template:
+    src: trivy-server.service.j2
+    dest: /etc/systemd/system/trivy-server.service
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Restart Trivy server
+  when: trivy_server_enable | bool
+
+- name: Enable and start Trivy server
+  ansible.builtin.systemd:
+    name: trivy-server
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+  when: trivy_server_enable | bool
+
+- name: Ensure ACME challenge webroot exists
+  ansible.builtin.file:
+    path: /var/www/html
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Deploy Nginx config for Trivy server (HTTP pre-certbot)
+  ansible.builtin.template:
+    src: trivy_nginx_http.conf.j2
+    dest: /etc/nginx/sites-available/trivy
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload Nginx
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Enable Trivy Nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/trivy
+    dest: /etc/nginx/sites-enabled/trivy
+    state: link
+  become: true
+  notify: Reload Nginx
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Remove default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  become: true
+  notify: Reload Nginx
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Test Nginx config before requesting Trivy certificate
+  ansible.builtin.command: nginx -t
+  become: true
+  changed_when: false
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Enable and start Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started
+  become: true
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Flush Nginx handler before requesting Trivy certificate
+  ansible.builtin.meta: flush_handlers
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Check if Trivy certificate already exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ trivy_server_domain }}/fullchain.pem"
+  register: trivy_cert_status
+  become: true
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Inspect existing Trivy certificate issuer
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509
+      -in /etc/letsencrypt/live/{{ trivy_server_domain }}/fullchain.pem
+      -noout
+      -issuer
+  register: trivy_cert_issuer
+  changed_when: false
+  failed_when: false
+  become: true
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+    - trivy_cert_status.stat.exists | default(false)
+
+- name: Determine whether the Trivy certificate needs issuance
+  ansible.builtin.set_fact:
+    trivy_cert_needs_issuance: >-
+      {{
+        not (trivy_cert_status.stat.exists | default(false))
+        or trivy_cert_issuer.rc | default(1) != 0
+        or (
+          certbot_staging | bool
+          and not (
+            "Let's Encrypt" in (trivy_cert_issuer.stdout | default(''))
+            or "Fake LE" in (trivy_cert_issuer.stdout | default(''))
+          )
+        )
+        or (
+          not certbot_staging | bool
+          and not (
+            "Let's Encrypt" in (trivy_cert_issuer.stdout | default(''))
+            and "Fake LE" not in (trivy_cert_issuer.stdout | default(''))
+          )
+        )
+      }}
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Obtain Let's Encrypt certificate for Trivy server
+  ansible.builtin.command: >-
+    certbot --nginx
+    -d {{ trivy_server_domain }}
+    --non-interactive
+    --agree-tos
+    --email {{ certbot_email }}
+    {{ '--redirect' if certbot_redirect_http_to_https else '' }}
+    {{ '--staging' if certbot_staging else '' }}
+  become: true
+  register: trivy_certbot_result
+  changed_when: "'Certificate not yet due for renewal' not in trivy_certbot_result.stdout"
+  failed_when:
+    - trivy_certbot_result.rc != 0
+    - "'Certificate not yet due for renewal' not in trivy_certbot_result.stdout"
+  notify: Reload Nginx
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+    - trivy_cert_needs_issuance | default(false) | bool
+
+- name: Deploy final Nginx HTTPS config for Trivy server
+  ansible.builtin.template:
+    src: trivy_nginx_https.conf.j2
+    dest: /etc/nginx/sites-available/trivy
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload Nginx
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Ensure Certbot auto-renewal timer is enabled
+  ansible.builtin.systemd:
+    name: certbot.timer
+    enabled: true
+    state: started
+  become: true
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+
+- name: Verify Trivy certificate renewal works
+  ansible.builtin.command: certbot renew --dry-run
+  become: true
+  register: trivy_certbot_dry_run
+  changed_when: false
+  failed_when: trivy_certbot_dry_run.rc != 0
+  when:
+    - trivy_server_enable | bool
+    - trivy_enable_https | bool
+    - trivy_certbot_verify_renewal | bool
+
+- name: Verify Trivy installation
+  ansible.builtin.command: trivy --version
+  register: trivy_version_output
+  changed_when: false
+  when: trivy_verify_install | bool
+
+- name: Show Trivy version
+  ansible.builtin.debug:
+    var: trivy_version_output.stdout_lines
+  when: trivy_verify_install | bool

@@ -1,0 +1,44 @@
+---
+- name: Create defectdojo system group
+  ansible.builtin.group:
+    name: "{{ defectdojo_group }}"
+    system: true
+    state: present
+
+- name: Create defectdojo system user
+  ansible.builtin.user:
+    name: "{{ defectdojo_user }}"
+    group: "{{ defectdojo_group }}"
+    system: true
+    shell: /bin/bash
+    home: "{{ defectdojo_install_dir }}"
+    create_home: false
+    state: present
+
+- name: Ensure install directory exists with correct ownership
+  ansible.builtin.file:
+    path: "{{ defectdojo_install_dir }}"
+    state: directory
+    owner: "{{ defectdojo_user }}"
+    group: "{{ defectdojo_group }}"
+    mode: "0755"
+
+- name: Ensure Docker Engine and Docker Compose plugin are installed
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Ensure Docker socket and service are enabled and started
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - docker.socket
+    - docker
+  become: true

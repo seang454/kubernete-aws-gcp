@@ -1,0 +1,18 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+
+- name: Restart Trivy server
+  ansible.builtin.systemd:
+    name: trivy-server
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: Reload Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+  become: true

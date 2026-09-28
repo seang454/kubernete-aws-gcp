@@ -178,6 +178,22 @@
     - enable_jaeger_route | default(true)
     - enable_jaeger | default(true)
 
+- name: Deploy Gateway API HTTPRoute for Alertmanager UI
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'alertmanager-httproute.yaml.j2') | from_yaml }}"
+    state: present
+  when:
+    - enable_alertmanager_route | default(true)
+    - enable_prometheus_stack | default(true)
+
+- name: Deploy Gateway API HTTPRoute for Kafka UI
+  kubernetes.core.k8s:
+    definition: "{{ lookup('template', 'kafka-httproute.yaml.j2') | from_yaml }}"
+    state: present
+  when:
+    - enable_kafka_ui_route | default(true)
+    - enable_kafka_ui | default(true)
+
 # ------------------------------------------------------------------------------
 # 4. CLOUDFLARE TUNNEL (CLOUDFLARED)
 # ------------------------------------------------------------------------------

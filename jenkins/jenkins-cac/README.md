@@ -1,0 +1,391 @@
+# Ansible Service Configuration
+
+This folder configures the VM after Terraform creates it.
+
+Terraform should create infrastructure such as VM instances, firewall rules, static IPs, and outputs. Ansible should SSH into those VMs and configure software such as SonarQube, Jenkins, Nexus, Vault, Trivy, and DefectDojo.
+
+## Main Flow
+
+```text
+Terraform creates GCP VM
+Terraform writes VM public IP into inventory
+Ansible connects by SSH
+venv_bootstrap prepares the shared machine environment
+Service role installs/configures the application
+```
+
+## Important Rule
+
+`roles/venv_bootstrap` is the central shared environment role.
+
+Put shared host dependencies there:
+
+- OS packages used by many services, for example `nginx`, `certbot`, `python3-pip`, `python3-venv`, `curl`, `wget`, and GPG tooling.
+- Service-specific OS packages passed into bootstrap, for example Docker for Jenkins/Nexus, Java/PostgreSQL for SonarQube, and Redis/build libraries for DefectDojo.
+- Shared Python packages, for example `ansible`, `psycopg2-binary`, `requests`, and `PyYAML`.
+- External CLI tools needed by a service, for example `glab` for Jenkins.
+
+Do not repeat those installs inside every service role. Service roles should focus on their own application.
+
+## Folder Structure
+
+```text
+ansible_service_config/
+|-- ansible.cfg
+|-- README.md
+|-- .gitignore
+|
+|-- inventories/
+|   |-- dev/
+|   |   |-- hosts.ini.example
+|   |-- staging/
+|   |   |-- hosts.ini.example
+|   |-- prod/
+|       |-- hosts.ini.example
+|
+|-- group_vars/
+|   |-- all.yml
+|   |-- sonarqube.yml.example
+|   |-- jenkins.yml.example
+|   |-- nexus.yml.example
+|   |-- defectdojo.yml.example
+|   |-- trivy.yml.example
+|   |-- vault.yml.example
+|   |
+|   |-- defectdojo/
+|   |   |-- terraform_domains.yml
+|   |-- jenkins/
+|   |   |-- terraform_domains.yml
+|   |-- nexus/
+|   |   |-- terraform_domains.yml
+|   |-- sonarqube/
+|   |   |-- terraform_domains.yml
+|   |-- trivy/
+|   |   |-- terraform_domains.yml
+|   |-- vault/
+|       |-- terraform_domains.yml
+|
+|-- collections/
+|   |-- requirements.yml
+|
+|-- playbooks/
+|   |-- site.yml
+|   |-- venv-bootstrap.yml
+|   |-- sonarqube.yml
+|   |-- jenkins.yml
+|   |-- nexus.yml
+|   |-- defectdojo.yml
+|   |-- trivy.yml
+|   |-- vault.yml
+|
+|-- roles/
+|   |-- venv_bootstrap/
+|   |-- sonarqube/
+|   |-- jenkins/
+|   |-- nexus/
+|   |-- defectdojo/
+|   |-- trivy/
+|   |-- vault/
+```
+
+## What Each Folder Does
+
+`inventories/`
+: Stores target server IPs or DNS names. Each service has a group such as `[sonarqube]`, `[jenkins]`, `[nexus]`, `[defectdojo]`, `[trivy]`, and `[vault]`.
+
+`group_vars/`
+: Stores shared variables and per-service examples. Copy a `*.yml.example` file to `*.yml` when you want inventory group-specific overrides. Sensitive values should eventually move to Ansible Vault.
+
+`collections/`
+: Lists Ansible collections required by the roles, including PostgreSQL, Docker, and general community modules.
+
+`playbooks/`
+: Entry points you run with `ansible-playbook`. Each playbook targets one inventory group and applies one role. `site.yml` can run all service groups.
+
+`roles/venv_bootstrap/`
+: Prepares the shared server environment. This role runs before service roles through role dependencies.
+
+`roles/sonarqube/`, `roles/jenkins/`, `roles/nexus/`, `roles/defectdojo/`, `roles/trivy/`, `roles/vault/`
+: Configure each service. These roles should not reinstall shared dependencies already handled by `venv_bootstrap`.
+
+## Role Dependency Flow
+
+Each service role depends on `venv_bootstrap`:
+
+```text
+playbooks/sonarqube.yml
+  -> role: sonarqube
+      -> dependency: venv_bootstrap
+      -> passes SonarQube packages such as Java and PostgreSQL
+      -> configure SonarQube
+
+playbooks/jenkins.yml
+  -> role: jenkins
+      -> dependency: venv_bootstrap
+      -> configure Jenkins
+```
+
+This means you normally run only the service playbook. Ansible runs `venv_bootstrap` first.
+
+`venv_bootstrap` has two package lists:
+
+- `service_config_base_system_packages`: common packages used by most service roles.
+- `service_config_extra_system_packages`: service-specific packages passed by a role, but still installed by `venv_bootstrap`.
+- `service_config_base_python_packages`: common Python packages installed in the shared venv.
+- `service_config_extra_python_packages`: service-specific Python packages passed by a role, but still installed in the shared venv.
+
+## Run Example
+
+First, create the GCP VM with Terraform:
+
+```powershell
+cd D:\CSTADPreUniversityTraining\ITP\researchforinterview\terraform\infrastructure\live\dev\asia-southeast1\gcp-vm
+Copy-Item terraform.tfvars.example terraform.tfvars
+notepad terraform.tfvars
+terraform init
+terraform plan
+terraform apply
+terraform output -raw server_ip
+```
+
+Then configure Ansible inventory:
+
+```bash
+cd terraform/ansible_service_config
+```
+
+Terraform now generates `inventories/dev/hosts.ini` during `terraform apply`.
+
+Example generated inventory:
+
+```ini
+# Generated by Terraform. Do not edit manually.
+# Source: terraform/infrastructure/live/dev/asia-southeast1/gcp-vm
+
+[sonarqube]
+gcp-vm-1 ansible_host=34.124.10.20 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+```
+
+For this project, the preferred design is dynamic service-to-VM inventory. Terraform can map each Ansible group to a specific VM index:
+
+```hcl
+ansible_service_targets = {
+  sonarqube = { vm_index = 1 }
+  jenkins   = { vm_index = 1 }
+  nexus     = { vm_index = 2 }
+}
+```
+
+Then Terraform writes:
+
+```ini
+[jenkins]
+gcp-vm-1 ansible_host=34.124.10.20 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+[nexus]
+gcp-vm-2 ansible_host=34.124.10.21 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+[sonarqube]
+gcp-vm-1 ansible_host=34.124.10.20 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+```
+
+When Cloudflare DNS is enabled, Terraform can derive this map from `cloudflare_dns_records`, so the DNS record key becomes the Ansible group name.
+
+When Cloudflare DNS is enabled, Terraform also generates service domain files under `group_vars/<service>/terraform_domains.yml`.
+
+Example:
+
+```yaml
+---
+# Generated by Terraform. Do not edit manually.
+# Source: terraform/infrastructure/live/dev/asia-southeast1/gcp-vm/ansible_group_vars.tf
+service_domain: "sonarqube.seang.shop"
+service_hostname: "sonarqube.seang.shop"
+sonarqube_domain: "sonarqube.seang.shop"
+```
+
+Ansible loads that file automatically for hosts in the matching inventory group. Keep secrets such as database passwords and admin passwords in your copied `group_vars/<service>.yml` file or Ansible Vault. The generated `terraform_domains.yml` files should only contain DNS/domain values from Terraform.
+
+Existing roles use their role-specific variable names, for example `sonarqube_domain` or `jenkins_domain`. For new roles, use the generic `service_domain` variable when possible. That keeps the new role dynamic: add the Cloudflare A/AAAA record, and Terraform can generate the inventory group plus domain vars automatically.
+
+Terraform creates `terraform_domains.yml` if it does not exist. If it already exists, Terraform updates the generated values during the next `terraform apply`.
+
+If you are not using Terraform for a test run, you can still copy the example manually:
+
+```bash
+cp inventories/dev/hosts.ini.example inventories/dev/hosts.ini
+```
+
+Real service variable files already exist and are loaded by Ansible:
+
+```text
+group_vars/sonarqube.yml
+group_vars/jenkins.yml
+group_vars/nexus.yml
+group_vars/defectdojo.yml
+group_vars/trivy.yml
+group_vars/vault.yml
+```
+
+Edit those real files before running the related playbook. The `*.yml.example` files are only reference templates and are not loaded by Ansible.
+
+Install required collections:
+
+```bash
+ansible-galaxy collection install -r collections/requirements.yml
+```
+
+Run one service:
+
+```bash
+ansible-playbook -i inventories/dev/hosts.ini playbooks/sonarqube.yml
+```
+
+Run the shared bootstrap only:
+
+```bash
+ansible-playbook -i inventories/dev/hosts.ini playbooks/venv-bootstrap.yml
+```
+
+Run all service groups from the inventory:
+
+```bash
+ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml
+```
+
+## Run After Terraform With Prompt
+
+From Linux or WSL:
+
+```bash
+cd terraform/infrastructure
+bash scripts/apply-dev-and-run-ansible.sh
+```
+
+It runs Terraform first, then prompts you before running Ansible.
+
+## Nexus Admin Password
+
+On the first Nexus run, the role reads the initial admin password from the container and prints it.
+
+After you change the Nexus admin password in the UI, set this variable before running the Nexus playbook again:
+
+```yaml
+nexus_admin_password: "YOUR_REAL_NEXUS_ADMIN_PASSWORD"
+```
+
+Without this value, the role cannot call the Nexus REST API after the initial password file is no longer valid.
+The role now probes authentication once, waits out a single 429 `Retry-After` window if Nexus is rate-limited, and then fails fast if Nexus still rejects the selected password.
+
+For a disposable dev Nexus instance where the admin password is lost, reset the Nexus data volume and bootstrap it again:
+
+```bash
+ansible-playbook -i inventories/dev/hosts.ini playbooks/nexus.yml -e nexus_reset_data=true
+```
+
+This deletes Nexus repositories, blob stores, and local Nexus configuration stored in the Docker volume.
+
+## HTTPS With Certbot
+
+The service roles use Nginx plus Certbot for HTTPS.
+
+Before running a HTTPS-enabled role:
+
+1. Point the service DNS name to the VM external IP.
+2. Open public ports `80` and `443` in Terraform with `http_https_source_ranges`.
+3. Set a real `certbot_email` in the service group vars file.
+
+Use these domain variables:
+
+```yaml
+sonarqube_domain: "sonarqube.your-domain.com"
+jenkins_domain: "jenkins.your-domain.com"
+nexus_domain: "nexus.your-domain.com"
+nexus_docker_repo_domain: "docker.your-domain.com"
+defectdojo_domain: "defectdojo.your-domain.com"
+trivy_server_domain: "trivy.your-domain.com"
+vault_domain: "vault.your-domain.com"
+certbot_email: "admin@your-domain.com"
+```
+
+For a temporary dev run without real DNS, disable HTTPS in that service group vars file:
+
+```yaml
+sonarqube_enable_https: false
+jenkins_enable_https: false
+nexus_enable_https: false
+defectdojo_enable_https: false
+trivy_enable_https: false
+```
+
+For Trivy CLI-only usage, disable the server endpoint:
+
+```yaml
+trivy_server_enable: false
+```
+
+Vault is designed as an HTTPS role in this project, so set a real `vault_domain` and `certbot_email`.
+
+For production, keep HTTPS enabled and replace all `example.com` values with real DNS names that point to the VM. You can use Let's Encrypt staging while testing:
+
+```yaml
+certbot_staging: true
+```
+
+If you already created a staging or otherwise untrusted certificate, rerun the HTTPS role after setting `certbot_staging: false`. The service roles now reissue non-Let's Encrypt certificates instead of silently reusing them.
+
+## Trivy Install Method
+
+The Trivy role supports two install methods:
+
+```yaml
+trivy_install_method: apt
+```
+
+or:
+
+```yaml
+trivy_install_method: binary
+trivy_binary_version: latest
+```
+
+Use `apt` for normal Ubuntu/Debian package management. Use `binary` when you want to install directly from the Trivy GitHub release archive.
+
+When `trivy_server_enable: true`, the role also creates a Trivy server systemd service and exposes it through Nginx/Certbot.
+
+## Same VM For Multiple Services
+
+If one VM runs multiple services, tell Terraform to write the VM under multiple inventory groups:
+
+```hcl
+ansible_inventory_groups = ["sonarqube", "trivy"]
+```
+
+The generated inventory will look like this:
+
+```ini
+[sonarqube]
+gcp-vm-1 ansible_host=34.124.10.20 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+[trivy]
+gcp-vm-1 ansible_host=34.124.10.20 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+```
+
+## Where To Change Values
+
+Use these places in this order:
+
+1. Put infrastructure values in Terraform `terraform.tfvars`.
+2. Put common service values in `group_vars/all.yml`.
+3. Put role-specific defaults in `roles/<role>/defaults/main.yml`.
+4. Override sensitive or environment-specific values with inventory vars or Ansible Vault.
+
+For the full list of real values you should provide in `group_vars`, read:
+
+```text
+terraform/ansible_service_config/GROUP_VARS_OVERRIDES.md
+```
+
+## Windows Note
+
+On Windows, run Ansible from WSL or a Linux environment. Ansible control nodes are best run on Linux.

@@ -1,0 +1,18 @@
+[Unit]
+Description=Harbor container registry (docker compose stack)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ harbor_install_dir }}
+ExecStart=/usr/bin/docker compose -f {{ harbor_install_dir }}/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose -f {{ harbor_install_dir }}/docker-compose.yml down
+ExecReload=/usr/bin/docker compose -f {{ harbor_install_dir }}/docker-compose.yml restart
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -17,10 +17,10 @@
     - { role: opensearch, when: enable_opensearch | default(true), tags: ["opensearch"] }
 
     # 2. Buffer, Streaming Queue & CDC
-    - { role: kafka, when: enable_kafka | default(false), tags: ["kafka"] }
-    - { role: schema_registry, when: enable_schema_registry | default(false), tags: ["schema_registry"] }
-    - { role: debezium, when: enable_debezium | default(false), tags: ["debezium"] }
-    - { role: kafka_ui, when: enable_kafka_ui | default(false), tags: ["kafka_ui"] }
+    - { role: kafka, when: enable_kafka | default(false) | bool, tags: ["kafka"] }
+    - { role: schema_registry, when: enable_schema_registry | default(false) | bool, tags: ["schema_registry"] }
+    - { role: debezium, when: enable_debezium | default(false) | bool, tags: ["debezium"] }
+    - { role: kafka_ui, when: enable_kafka_ui | default(false) | bool, tags: ["kafka_ui"] }
 
     # 3. Universal Telemetry Shipper
     - { role: alloy, when: enable_alloy | default(true), tags: ["alloy"] }

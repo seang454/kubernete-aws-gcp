@@ -1,0 +1,86 @@
+---
+- name: Validate supported OS family
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["os_family"] == "Debian"
+    fail_msg: "ansible_service_config currently supports Debian/Ubuntu targets."
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Remove conflicting Docker packages before installing Ubuntu Docker packages
+  ansible.builtin.apt:
+    name:
+      - containerd
+      - containerd.io
+      - docker-ce
+      - docker-ce-cli
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: absent
+    purge: true
+    autoremove: true
+  when:
+    - ansible_facts.packages is defined
+    - "'docker-ce' in ansible_facts.packages or 'containerd.io' in ansible_facts.packages"
+
+- name: Install shared service environment packages
+  ansible.builtin.apt:
+    name: "{{ service_config_system_packages }}"
+    state: present
+
+- name: Ensure Docker systemd override directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: "0755"
+  when:
+    - service_config_start_docker | bool
+    - "'docker.io' in service_config_system_packages"
+
+- name: Configure Docker systemd override to prevent rate-limit bursts
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker.service.d/override.conf
+    mode: "0644"
+    content: |
+      [Unit]
+      StartLimitIntervalSec=0
+
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/dockerd -H unix:///var/run/docker.sock --containerd=/run/containerd/containerd.sock
+  register: docker_override
+  when:
+    - service_config_start_docker | bool
+    - "'docker.io' in service_config_system_packages"
+
+- name: Reload systemd daemon if Docker override changed
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: docker_override.changed | default(false)
+
+- name: Ensure Docker socket and service are running when installed
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - docker.socket
+    - docker
+  register: docker_service_result
+  failed_when: false
+  when:
+    - service_config_start_docker | bool
+    - "'docker.io' in service_config_system_packages"
+    - ansible_facts['service_mgr'] == 'systemd'
+
+- name: Warn when Docker service could not be started
+  ansible.builtin.debug:
+    msg: >-
+      Docker was installed but the service could not be started automatically.
+      Review 'systemctl status docker' and 'journalctl -xeu docker' on the target host.
+  when:
+    - docker_service_result is defined
+    - docker_service_result.failed | default(false)

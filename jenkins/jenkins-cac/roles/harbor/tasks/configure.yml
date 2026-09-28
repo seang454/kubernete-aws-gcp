@@ -1,0 +1,164 @@
+---
+# Rather than hand-writing a full harbor.yml from scratch (which would drift
+# from upstream every release), we take the harbor.yml.tmpl that ships
+# *inside this exact release's tarball* and only patch the handful of values
+# you actually want changed. Everything else stays at Harbor's own default.
+
+- name: Check whether harbor.yml already exists
+  ansible.builtin.stat:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+  register: harbor_yml_stat
+
+- name: Seed harbor.yml from the shipped harbor.yml.tmpl
+  ansible.builtin.copy:
+    src: "{{ harbor_install_dir }}/harbor.yml.tmpl"
+    dest: "{{ harbor_install_dir }}/harbor.yml"
+    remote_src: true
+    force: false   # never clobber an existing/hand-edited harbor.yml on reruns
+    mode: "0640"
+
+- name: Set hostname
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^hostname: .*$'
+    replace: "hostname: {{ harbor_hostname }}"
+
+- name: Set HTTP port
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*port:\s*)80\s*$'
+    replace: '\g<1>{{ harbor_http_port }}'
+
+- name: Disable HTTPS block in harbor.yml (HTTP-only, TLS handled by your own reverse proxy)
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '(?m)^#?\s*https:\s*\n(?:[ \t].*\n)*'
+    replace: "# https block disabled: TLS is terminated by system Nginx.\n"
+
+- name: Set initial Harbor admin password
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^harbor_admin_password: .*$'
+    replace: "harbor_admin_password: {{ harbor_admin_password }}"
+
+- name: Set database root password
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*password:\s*).*$'
+    replace: '\g<1>{{ harbor_database_password }}'
+
+- name: Set data_volume
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^data_volume: .*$'
+    replace: "data_volume: {{ harbor_data_volume }}"
+
+- name: Set log level
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*level:\s*).*$'
+    replace: '\g<1>{{ harbor_log_level }}'
+
+- name: Set log rotation count
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*rotate_count:\s*).*$'
+    replace: '\g<1>{{ harbor_log_rotate_count }}'
+
+- name: Set log rotation size
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*rotate_size:\s*).*$'
+    replace: '\g<1>{{ harbor_log_rotate_size }}'
+
+- name: Set log location
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*location:\s*)/var/log/harbor\s*$'
+    replace: '\g<1>{{ harbor_log_location }}'
+
+- name: Set jobservice max_job_workers
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*max_job_workers:\s*).*$'
+    replace: '\g<1>{{ harbor_jobservice_max_job_workers }}'
+
+- name: Set notification webhook_job_max_retry
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*webhook_job_max_retry:\s*).*$'
+    replace: '\g<1>{{ harbor_notification_webhook_job_max_retry }}'
+
+- name: Set trivy ignore_unfixed
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*ignore_unfixed:\s*).*$'
+    replace: '\g<1>{{ harbor_trivy_ignore_unfixed | lower }}'
+
+- name: Set trivy security_check
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*security_check:\s*).*$'
+    replace: '\g<1>{{ harbor_trivy_security_check }}'
+
+- name: Set trivy skip_update
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*skip_update:\s*).*$'
+    replace: '\g<1>{{ harbor_trivy_skip_update | lower }}'
+
+- name: Set trivy insecure
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*insecure:\s*).*$'
+    replace: '\g<1>{{ harbor_trivy_insecure | lower }}'
+
+- name: Set trivy github_token (only if provided)
+  ansible.builtin.replace:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    regexp: '^(\s*)#?\s*github_token:.*$'
+    replace: '\g<1>github_token: {{ harbor_trivy_github_token }}'
+  when: harbor_trivy_github_token | length > 0
+
+- name: Enable proxy block (only if a proxy is configured)
+  block:
+    - name: Uncomment proxy block header
+      ansible.builtin.replace:
+        path: "{{ harbor_install_dir }}/harbor.yml"
+        regexp: '^#proxy:\s*$'
+        replace: 'proxy:'
+    - name: Set http_proxy
+      ansible.builtin.replace:
+        path: "{{ harbor_install_dir }}/harbor.yml"
+        regexp: '^#?(\s*)http_proxy:.*$'
+        replace: '\g<1>http_proxy: {{ harbor_http_proxy }}'
+    - name: Set https_proxy
+      ansible.builtin.replace:
+        path: "{{ harbor_install_dir }}/harbor.yml"
+        regexp: '^#?(\s*)https_proxy:.*$'
+        replace: '\g<1>https_proxy: {{ harbor_https_proxy }}'
+    - name: Set no_proxy
+      ansible.builtin.replace:
+        path: "{{ harbor_install_dir }}/harbor.yml"
+        regexp: '^#?(\s*)no_proxy:.*$'
+        replace: '\g<1>no_proxy: {{ harbor_no_proxy }}'
+  when: (harbor_http_proxy | length > 0) or (harbor_https_proxy | length > 0)
+
+- name: Enable cache block (only if requested)
+  block:
+    - name: Uncomment cache block header
+      ansible.builtin.replace:
+        path: "{{ harbor_install_dir }}/harbor.yml"
+        regexp: '^#cache:\s*$'
+        replace: 'cache:'
+    - name: Set cache.enabled
+      ansible.builtin.replace:
+        path: "{{ harbor_install_dir }}/harbor.yml"
+        regexp: '^#?(\s*)enabled:\s*false\s*$'
+        replace: '\g<1>enabled: true'
+    - name: Set cache.expire_hours
+      ansible.builtin.replace:
+        path: "{{ harbor_install_dir }}/harbor.yml"
+        regexp: '^#?(\s*)expire_hours:.*$'
+        replace: '\g<1>expire_hours: {{ harbor_cache_expire_hours }}'
+  when: harbor_cache_enabled | bool

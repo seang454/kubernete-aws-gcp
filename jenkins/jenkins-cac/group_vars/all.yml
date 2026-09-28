@@ -1,0 +1,9 @@
+---
+# Common variables for every host can go here.
+# Keep service-specific values in group_vars/<service>.yml.
+# Keep secrets in Ansible Vault files, not plain text.
+
+# If every service uses the same Let's Encrypt contact email, set it here.
+# Change this if you want Let's Encrypt notices sent to another mailbox.
+certbot_email: "pengseangsim@210.gmail.com"
+certbot_staging: false

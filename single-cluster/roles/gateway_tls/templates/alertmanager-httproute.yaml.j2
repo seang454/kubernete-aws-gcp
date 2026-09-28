@@ -1,0 +1,22 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: alertmanager-httproute
+  namespace: {{ k8s_monitoring_namespace | default('monitoring') }}
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: kube-prometheus-stack
+spec:
+  parentRefs:
+    - name: {{ traefik_gateway_name | default('traefik-gateway') }}
+      namespace: {{ traefik_namespace | default('traefik') }}
+  hostnames:
+    - "{{ alertmanager_domain | default('alertmanager.seang.shop') }}"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ alertmanager_backend_service | default('prometheus-kube-prometheus-alertmanager') }}
+          port: {{ alertmanager_backend_port | default(9093) }}

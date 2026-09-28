@@ -1,0 +1,38 @@
+---
+- name: Validate DefectDojo required values
+  ansible.builtin.assert:
+    that:
+      - defectdojo_db_password is defined
+      - defectdojo_db_password | length >= 12
+      - defectdojo_secret_key is defined
+      - defectdojo_secret_key | length >= 50
+      - defectdojo_admin_password is defined
+      - defectdojo_admin_password | length >= 12
+    fail_msg: "Set strong DefectDojo database, secret key, and admin password values before running this role."
+  no_log: true
+
+- name: Validate DefectDojo HTTPS settings
+  ansible.builtin.assert:
+    that:
+      - defectdojo_domain is defined
+      - defectdojo_domain != "defectdojo.example.com"
+      - certbot_email is defined
+      - certbot_email != "admin@example.com"
+    fail_msg: "Set defectdojo_domain and certbot_email before enabling DefectDojo HTTPS."
+  when: defectdojo_enable_https | bool
+
+- name: Include system preparation tasks
+  import_tasks: system.yml
+
+- name: Include log directory setup
+  import_tasks: logs.yml
+
+- name: Include DefectDojo Docker installation tasks
+  import_tasks: defectdojo.yml
+
+- name: Include Nginx tasks
+  import_tasks: nginx.yml
+
+- name: Include Certbot / HTTPS tasks
+  import_tasks: certbot.yml
+  when: defectdojo_enable_https | bool

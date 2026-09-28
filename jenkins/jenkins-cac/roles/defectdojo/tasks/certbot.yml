@@ -1,0 +1,79 @@
+---
+- name: Check if certificate already exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ defectdojo_domain }}/fullchain.pem"
+  register: cert_stat
+
+- name: Inspect existing DefectDojo certificate issuer
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509
+      -in /etc/letsencrypt/live/{{ defectdojo_domain }}/fullchain.pem
+      -noout
+      -issuer
+  register: defectdojo_cert_issuer
+  changed_when: false
+  failed_when: false
+  when: cert_stat.stat.exists | default(false)
+
+- name: Determine whether the DefectDojo certificate needs issuance
+  ansible.builtin.set_fact:
+    defectdojo_cert_needs_issuance: >-
+      {{
+        not (cert_stat.stat.exists | default(false))
+        or defectdojo_cert_issuer.rc | default(1) != 0
+        or (
+          certbot_staging | bool
+          and not (
+            "Let's Encrypt" in (defectdojo_cert_issuer.stdout | default(''))
+            or "Fake LE" in (defectdojo_cert_issuer.stdout | default(''))
+          )
+        )
+        or (
+          not certbot_staging | bool
+          and not (
+            "Let's Encrypt" in (defectdojo_cert_issuer.stdout | default(''))
+            and "Fake LE" not in (defectdojo_cert_issuer.stdout | default(''))
+          )
+        )
+      }}
+
+- name: Obtain Let's Encrypt certificate via Nginx plugin
+  ansible.builtin.command: >
+    certbot --nginx
+    -d {{ defectdojo_domain }}
+    --non-interactive
+    --agree-tos
+    --email {{ certbot_email }}
+    {% if certbot_staging %}--staging{% endif %}
+    {% if certbot_redirect_http_to_https %}--redirect{% endif %}
+  register: defectdojo_certbot_result
+  changed_when: "'Certificate not yet due for renewal' not in (defectdojo_certbot_result.stdout | default(''))"
+  failed_when:
+    - defectdojo_certbot_result.rc != 0
+    - "'Certificate not yet due for renewal' not in (defectdojo_certbot_result.stdout | default(''))"
+    - "'too many certificates' not in (defectdojo_certbot_result.stderr | default(''))"
+  when: defectdojo_cert_needs_issuance | default(false) | bool
+  notify: reload nginx
+
+- name: Deploy final Nginx HTTPS config
+  ansible.builtin.template:
+    src: nginx-https.conf.j2
+    dest: "/etc/nginx/sites-available/defectdojo"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Ensure Certbot auto-renewal timer is enabled
+  ansible.builtin.systemd:
+    name: certbot.timer
+    state: started
+    enabled: true
+
+- name: Verify certbot renewal works (dry-run)
+  ansible.builtin.command: certbot renew --dry-run
+  register: certbot_dry_run
+  changed_when: false
+  failed_when: certbot_dry_run.rc != 0
+  when: defectdojo_certbot_verify_renewal | bool

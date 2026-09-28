@@ -1,0 +1,26 @@
+---
+galaxy_info:
+  role_name: defectdojo
+  author: seang
+  description: Install and configure DefectDojo.
+  min_ansible_version: "2.14"
+dependencies:
+  - role: venv_bootstrap
+    service_config_extra_system_packages:
+      - build-essential
+      - libffi-dev
+      - libjpeg-dev
+      - libldap2-dev
+      - libpq-dev
+      - libsasl2-dev
+      - libssl-dev
+      - libxml2-dev
+      - libxslt1-dev
+      - postgresql
+      - postgresql-common
+      - postgresql-contrib
+      - python3-psycopg2
+      - redis-server
+collections:
+  - community.general
+  - community.postgresql

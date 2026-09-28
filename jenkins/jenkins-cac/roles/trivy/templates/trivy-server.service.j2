@@ -1,0 +1,13 @@
+[Unit]
+Description=Trivy vulnerability scanner server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ (trivy_binary_install_dir ~ '/trivy') if trivy_install_method == 'binary' else '/usr/bin/trivy' }} server --listen {{ trivy_server_listen_host }}:{{ trivy_server_port }} --cache-dir {{ trivy_cache_dir }}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,129 @@
+---
+- name: Ensure legacy DefectDojo systemd services are stopped and disabled
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - defectdojo-gunicorn
+    - defectdojo-celery-worker
+    - defectdojo-celery-beat
+  failed_when: false
+
+- name: Remove legacy DefectDojo systemd unit files
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}"
+    state: absent
+  loop:
+    - defectdojo-gunicorn.service
+    - defectdojo-celery-worker.service
+    - defectdojo-celery-beat.service
+
+- name: Remove legacy Python virtualenv
+  ansible.builtin.file:
+    path: "{{ defectdojo_install_dir }}/venv"
+    state: absent
+
+- name: Ensure DefectDojo install directory exists
+  ansible.builtin.file:
+    path: "{{ defectdojo_install_dir }}"
+    state: directory
+    owner: "{{ defectdojo_user }}"
+    group: "{{ defectdojo_group }}"
+    mode: "0755"
+
+- name: Configure Git safe directory for DefectDojo
+  ansible.builtin.command:
+    cmd: "git config --global --add safe.directory {{ defectdojo_install_dir }}"
+  become: true
+  changed_when: false
+
+- name: Ensure DefectDojo repository is cloned and updated to target version
+  ansible.builtin.git:
+    repo: "https://github.com/DefectDojo/django-DefectDojo.git"
+    dest: "{{ defectdojo_install_dir }}"
+    version: "{{ defectdojo_version }}"
+    update: true
+    force: true
+  become: true
+
+- name: Ensure DefectDojo install directory ownership is recursive
+  ansible.builtin.file:
+    path: "{{ defectdojo_install_dir }}"
+    state: directory
+    owner: "{{ defectdojo_user }}"
+    group: "{{ defectdojo_group }}"
+    mode: "0755"
+    recurse: true
+
+- name: Deploy DefectDojo Docker Compose environment configuration
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ defectdojo_install_dir }}/.env"
+    owner: "{{ defectdojo_user }}"
+    group: "{{ defectdojo_group }}"
+    mode: "0600"
+  no_log: true
+
+- name: Deploy DefectDojo Docker Compose override for auto-restart on boot
+  ansible.builtin.template:
+    src: docker-compose.override.yml.j2
+    dest: "{{ defectdojo_install_dir }}/docker-compose.override.yml"
+    owner: "{{ defectdojo_user }}"
+    group: "{{ defectdojo_group }}"
+    mode: "0644"
+
+- name: Run DefectDojo via Docker Compose
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ defectdojo_install_dir }}"
+  become: true
+  changed_when: false
+
+- name: Wait for DefectDojo database migrations to complete
+  ansible.builtin.command:
+    cmd: docker compose exec -T uwsgi python manage.py migrate --check
+    chdir: "{{ defectdojo_install_dir }}"
+  become: true
+  register: migrate_check
+  until: migrate_check.rc == 0
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Wait for DefectDojo initializer container to complete
+  ansible.builtin.command:
+    cmd: docker compose ps -a initializer --format "{{ '{{' }}.Status{{ '}}' }}"
+    chdir: "{{ defectdojo_install_dir }}"
+  become: true
+  register: initializer_status
+  until: "'Exited (0)' in initializer_status.stdout"
+  retries: 30
+  delay: 10
+  changed_when: false
+  failed_when: false
+
+- name: Ensure DefectDojo admin password is set in Docker Compose container
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T uwsgi python manage.py shell -c
+      "from django.contrib.auth import get_user_model; User = get_user_model(); u, _ = User.objects.get_or_create(username='{{ defectdojo_admin_user }}'); u.set_password('{{ defectdojo_admin_password }}'); u.email='{{ defectdojo_admin_email }}'; u.is_superuser=True; u.is_staff=True; u.save()"
+    chdir: "{{ defectdojo_install_dir }}"
+  become: true
+  changed_when: false
+
+- name: Ensure DefectDojo static asset compatibility symlinks exist
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -u root -T nginx sh -c
+      "mkdir -p /usr/share/nginx/html/static/datatables.net-dt/css /usr/share/nginx/html/static/datatables.net-dt/js &&
+       cd /usr/share/nginx/html/static/datatables.net/js && ln -sf dataTables.min.js jquery.dataTables.min.js &&
+       cp -rn /usr/share/nginx/html/static/datatables.net-bs/css/* /usr/share/nginx/html/static/datatables.net-dt/css/ 2>/dev/null || true &&
+       cp -rn /usr/share/nginx/html/static/datatables.net-bs/js/* /usr/share/nginx/html/static/datatables.net-dt/js/ 2>/dev/null || true &&
+       cd /usr/share/nginx/html/static/datatables.net-dt/css && ln -sf dataTables.bootstrap.min.css jquery.dataTables.min.css &&
+       cd /usr/share/nginx/html/static/datatables.net-dt/js && ln -sf dataTables.bootstrap.min.js dataTables.dataTables.min.js &&
+       cd /usr/share/nginx/html/static/dojo/img && ln -sf favicon.png favicon.ico"
+    chdir: "{{ defectdojo_install_dir }}"
+  become: true
+  changed_when: false
+  failed_when: false

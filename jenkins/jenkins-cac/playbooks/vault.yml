@@ -1,0 +1,6 @@
+---
+- name: Configure Vault server
+  hosts: vault
+  become: true
+  roles:
+    - vault

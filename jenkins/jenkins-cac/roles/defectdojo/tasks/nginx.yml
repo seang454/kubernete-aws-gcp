@@ -1,0 +1,33 @@
+---
+- name: Remove default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+- name: Deploy Nginx HTTP config (pre-certbot)
+  ansible.builtin.template:
+    src: nginx-http.conf.j2
+    dest: "/etc/nginx/sites-available/defectdojo"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Enable DefectDojo Nginx site
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/defectdojo"
+    dest: "/etc/nginx/sites-enabled/defectdojo"
+    state: link
+  notify: reload nginx
+
+- name: Ensure Nginx is started and enabled
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true
+
+- name: Reload Nginx now (needed before certbot runs)
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded

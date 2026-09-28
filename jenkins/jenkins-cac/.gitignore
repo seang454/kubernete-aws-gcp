@@ -1,0 +1,12 @@
+inventories/*/hosts.ini
+.ansible/
+*.retry
+*.log
+group_vars/*.yml
+!group_vars/all.yml
+!group_vars/*.yml.example
+group_vars/*.vault.yml
+group_vars/*/terraform_domains.yml
+vault-password.txt
+.vault-password
+

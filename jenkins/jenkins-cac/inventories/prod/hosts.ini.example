@@ -1,0 +1,17 @@
+[sonarqube]
+YOUR_PROD_SONARQUBE_VM_IP ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+[jenkins]
+YOUR_PROD_JENKINS_VM_IP ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+[nexus]
+YOUR_PROD_NEXUS_VM_IP ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+[defectdojo]
+YOUR_PROD_DEFECTDOJO_VM_IP ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+[trivy]
+YOUR_PROD_TRIVY_VM_IP ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+[vault]
+YOUR_PROD_VAULT_VM_IP ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa

@@ -256,7 +256,7 @@ kafka_nodes:
     name: "kafka-3-itp"
 
 # KRaft Quorum & Topic Settings
-kafka_controller_quorum_voters: "1@kafka-1-itp:9091,2@kafka-2-itp:9091,3@kafka-3-itp:9091"
+kafka_controller_quorum_voters: "1@kafka-1-itp.kafka.svc.{{ k8s_cluster_domain | default('k8scluster') }}:9091,2@kafka-2-itp.kafka.svc.{{ k8s_cluster_domain | default('k8scluster') }}:9091,3@kafka-3-itp.kafka.svc.{{ k8s_cluster_domain | default('k8scluster') }}:9091"
 kafka_offsets_topic_replication_factor: 3
 kafka_transaction_state_log_min_isr: 1
 kafka_transaction_state_log_replication_factor: 1

@@ -1,0 +1,9 @@
+sonar.jdbc.username={{ sonarqube_database_user }}
+sonar.jdbc.password={{ sonarqube_database_password }}
+sonar.jdbc.url=jdbc:postgresql://{{ sonarqube_database_host }}:{{ sonarqube_database_port }}/{{ sonarqube_database_name }}
+sonar.web.javaAdditionalOpts=-server
+sonar.web.host={{ sonarqube_web_host }}
+sonar.web.port={{ sonarqube_web_port }}
+{% if sonarqube_enable_https | bool %}
+sonar.core.serverBaseURL=https://{{ sonarqube_domain }}
+{% endif %}

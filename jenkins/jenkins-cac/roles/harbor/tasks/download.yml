@@ -1,0 +1,33 @@
+---
+- name: Set installer filename and download URL facts
+  ansible.builtin.set_fact:
+    harbor_installer_filename: "harbor-{{ harbor_installer_type }}-installer-{{ harbor_version }}.tgz"
+    harbor_installer_url: "https://github.com/goharbor/harbor/releases/download/{{ harbor_version }}/harbor-{{ harbor_installer_type }}-installer-{{ harbor_version }}.tgz"
+
+- name: Check if Harbor is already extracted (idempotency marker)
+  ansible.builtin.stat:
+    path: "{{ harbor_install_dir }}/install.sh"
+  register: harbor_already_extracted
+
+- name: Download Harbor {{ harbor_installer_type }} installer {{ harbor_version }}
+  ansible.builtin.get_url:
+    url: "{{ harbor_installer_url }}"
+    dest: "{{ harbor_download_tmp_dir }}/{{ harbor_installer_filename }}"
+    mode: "0644"
+    timeout: 600
+  when: not harbor_already_extracted.stat.exists or harbor_force_reinstall | bool
+  register: harbor_download_result
+
+# The tarball contains a top-level "harbor/" folder, so extracting into
+# harbor_install_parent_dir (default /opt) results in /opt/harbor.
+- name: Extract Harbor installer into {{ harbor_install_parent_dir }}
+  ansible.builtin.unarchive:
+    src: "{{ harbor_download_tmp_dir }}/{{ harbor_installer_filename }}"
+    dest: "{{ harbor_install_parent_dir }}"
+    remote_src: true
+  when: not harbor_already_extracted.stat.exists or harbor_force_reinstall | bool
+
+- name: Ensure install.sh is executable
+  ansible.builtin.file:
+    path: "{{ harbor_install_dir }}/install.sh"
+    mode: "0755"

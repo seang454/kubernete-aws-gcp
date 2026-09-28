@@ -1,0 +1,20 @@
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart harbor
+  ansible.builtin.systemd:
+    name: "{{ harbor_systemd_service_name }}"
+    state: restarted
+  when: harbor_manage_systemd | bool
+
+- name: reload nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+
+- name: Reload Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded

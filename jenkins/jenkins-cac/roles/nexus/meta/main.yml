@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  role_name: nexus
+  author: seang
+  description: Deploy Nexus Repository Manager with Docker, Nginx, and Certbot.
+  min_ansible_version: "2.14"
+dependencies:
+  - role: venv_bootstrap
+    service_config_extra_system_packages:
+      - docker.io
+      - python3-docker
+    service_config_extra_python_packages:
+      - docker
+    service_config_start_docker: true
+collections:
+  - community.docker

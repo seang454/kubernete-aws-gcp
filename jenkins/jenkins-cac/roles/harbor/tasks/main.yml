@@ -1,0 +1,44 @@
+---
+# =============================================================================
+# ansible-role-harbor : main task flow
+# =============================================================================
+
+- name: Assert supported OS family
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] in ['Debian', 'RedHat']
+    fail_msg: >-
+      This role only handles apt/yum based prerequisite installation
+      automatically ({{ ansible_facts['os_family'] }} detected). Install
+      curl/tar/docker manually and set harbor_manage_docker: false to continue.
+  tags: harbor_assert
+
+- name: Install OS prerequisites
+  ansible.builtin.import_tasks: prereqs.yml
+  tags: harbor_prereqs
+
+- name: Install and configure Docker Engine
+  ansible.builtin.import_tasks: docker.yml
+  when: harbor_manage_docker | bool
+  tags: harbor_docker
+
+- name: Download and extract the Harbor installer
+  ansible.builtin.import_tasks: download.yml
+  tags: harbor_download
+
+- name: Render harbor.yml configuration
+  ansible.builtin.import_tasks: configure.yml
+  tags: harbor_configure
+
+- name: Configure Nginx reverse proxy and SSL
+  ansible.builtin.import_tasks: nginx.yml
+  tags: harbor_nginx
+
+- name: Run install.sh and bring Harbor up
+  ansible.builtin.import_tasks: install.yml
+  tags: harbor_install
+
+- name: Install systemd unit for Harbor
+  ansible.builtin.import_tasks: systemd.yml
+  when: harbor_manage_systemd | bool
+  tags: harbor_systemd

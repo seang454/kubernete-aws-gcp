@@ -1,0 +1,192 @@
+---
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - vault_domain is defined
+      - vault_domain | length > 3
+      - vault_domain != "vault.example.com"
+      - certbot_email is defined
+      - certbot_email | length > 5
+      - certbot_email != "admin@example.com"
+    fail_msg: "Please set real vault_domain and certbot_email values before running this role."
+
+- name: Download HashiCorp GPG key
+  ansible.builtin.get_url:
+    url: https://apt.releases.hashicorp.com/gpg
+    dest: /tmp/hashicorp-archive-keyring.asc
+    mode: "0644"
+
+- name: Add HashiCorp GPG key
+  ansible.builtin.command:
+    cmd: gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg /tmp/hashicorp-archive-keyring.asc
+    creates: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+
+- name: Add HashiCorp APT repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/hashicorp.list
+    mode: "0644"
+    content: "deb [arch={{ ansible_facts['architecture'] | regex_replace('x86_64','amd64') | regex_replace('aarch64','arm64') }} signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_facts['distribution_release'] }} main\n"
+
+- name: Install Vault
+  ansible.builtin.apt:
+    name: vault
+    state: present
+    update_cache: true
+
+- name: Create Vault data directory
+  ansible.builtin.file:
+    path: "{{ vault_data_dir }}"
+    state: directory
+    owner: vault
+    group: vault
+    mode: "0750"
+
+- name: Configure Vault server with UI enabled
+  ansible.builtin.template:
+    src: vault.hcl.j2
+    dest: "{{ vault_config_dir }}/vault.hcl"
+    owner: vault
+    group: vault
+    mode: "0640"
+  notify: Restart vault
+
+- name: Enable and start Vault service
+  ansible.builtin.systemd:
+    name: vault
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Install Certbot using snap
+  when: certbot_use_snap | bool
+  block:
+    - name: Install certbot snap
+      community.general.snap:
+        name: certbot
+        classic: true
+        state: present
+
+    - name: Link certbot command
+      ansible.builtin.file:
+        src: /snap/bin/certbot
+        dest: /usr/bin/certbot
+        state: link
+        force: true
+
+- name: Create temporary HTTP Nginx config for Certbot validation
+  ansible.builtin.template:
+    src: nginx-vault-http.conf.j2
+    dest: "/etc/nginx/sites-available/{{ vault_domain }}.conf"
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Enable Nginx site
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ vault_domain }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ vault_domain }}.conf"
+    state: link
+  notify: Reload nginx
+
+- name: Remove default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: Test Nginx config
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Start and enable Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: Flush handlers before requesting certificate
+  ansible.builtin.meta: flush_handlers
+
+- name: Check if Vault certificate already exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ vault_domain }}/fullchain.pem"
+  register: vault_cert_status
+
+- name: Inspect existing Vault certificate issuer
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509
+      -in /etc/letsencrypt/live/{{ vault_domain }}/fullchain.pem
+      -noout
+      -issuer
+  register: vault_cert_issuer
+  changed_when: false
+  failed_when: false
+  when: vault_cert_status.stat.exists | default(false)
+
+- name: Determine whether the Vault certificate needs issuance
+  ansible.builtin.set_fact:
+    vault_cert_needs_issuance: >-
+      {{
+        not (vault_cert_status.stat.exists | default(false))
+        or vault_cert_issuer.rc | default(1) != 0
+        or (
+          certbot_staging | bool
+          and not (
+            "Let's Encrypt" in (vault_cert_issuer.stdout | default(''))
+            or "Fake LE" in (vault_cert_issuer.stdout | default(''))
+          )
+        )
+        or (
+          not certbot_staging | bool
+          and not (
+            "Let's Encrypt" in (vault_cert_issuer.stdout | default(''))
+            and "Fake LE" not in (vault_cert_issuer.stdout | default(''))
+          )
+        )
+      }}
+
+- name: Request or renew Let's Encrypt certificate for Vault domain
+  ansible.builtin.command: >-
+    certbot --nginx
+    -d {{ vault_domain }}
+    --email {{ certbot_email }}
+    --agree-tos
+    --non-interactive
+    {{ '--redirect' if certbot_redirect_http_to_https else '' }}
+    {{ '--staging' if certbot_staging else '' }}
+  notify: Reload nginx
+  when: vault_cert_needs_issuance | default(false) | bool
+
+- name: Ensure Certbot auto-renewal timer is enabled
+  ansible.builtin.systemd:
+    name: certbot.timer
+    enabled: true
+    state: started
+
+- name: Install final HTTPS Nginx reverse proxy config
+  ansible.builtin.template:
+    src: nginx-vault-https.conf.j2
+    dest: "/etc/nginx/sites-available/{{ vault_domain }}.conf"
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Test final Nginx config
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Allow HTTP/HTTPS in UFW
+  when: configure_ufw | bool
+  community.general.ufw:
+    rule: allow
+    name: "Nginx Full"
+
+- name: Flush final handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Show next steps
+  ansible.builtin.debug:
+    msg:
+      - "Vault UI should be available at https://{{ vault_domain }}/ui"
+      - "Initialize Vault with: vault operator init"
+      - "Unseal Vault with: vault operator unseal"
+      - "Set CLI address: export VAULT_ADDR=https://{{ vault_domain }}"

@@ -1,0 +1,26 @@
+---
+# Required: domain name that points to this server public IP
+vault_domain: "vault.example.com"
+
+# Required for Let's Encrypt / Certbot
+certbot_email: "pengseangsim210@gmail.com"
+
+# Vault settings
+vault_ui_enabled: true
+vault_listener_address: "127.0.0.1:8200"
+vault_api_addr: "https://{{ vault_domain }}"
+vault_cluster_addr: "http://127.0.0.1:8201"
+vault_data_dir: "/opt/vault/data"
+vault_config_dir: "/etc/vault.d"
+vault_disable_mlock: true
+
+# Nginx settings
+nginx_client_max_body_size: "50m"
+
+# Certbot settings
+certbot_use_snap: false
+certbot_redirect_http_to_https: true
+certbot_staging: false
+
+# Optional UFW firewall rules. Set true only if you use UFW.
+configure_ufw: false

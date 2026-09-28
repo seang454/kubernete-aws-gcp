@@ -1,0 +1,57 @@
+---
+- name: Resolve latest glab version
+  ansible.builtin.uri:
+    url: "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases?per_page=1"
+    return_content: true
+  register: service_config_glab_release_info
+  delegate_to: localhost
+  run_once: true
+  become: false
+  when:
+    - service_config_install_glab | bool
+    - service_config_glab_version == "latest"
+
+- name: Set resolved glab version
+  ansible.builtin.set_fact:
+    service_config_glab_resolved_version: >-
+      {{
+        (service_config_glab_release_info.json | first).tag_name | regex_replace('^v', '')
+        if service_config_glab_version == 'latest'
+        else service_config_glab_version
+      }}
+  when: service_config_install_glab | bool
+
+- name: Set glab architecture
+  ansible.builtin.set_fact:
+    service_config_glab_arch: "{{ service_config_glab_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+  when: service_config_install_glab | bool
+
+- name: Download glab binary archive
+  ansible.builtin.get_url:
+    url: "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/packages/generic/glab/{{ service_config_glab_resolved_version }}/glab_{{ service_config_glab_resolved_version }}_linux_{{ service_config_glab_arch }}.tar.gz"
+    dest: "/tmp/glab-{{ service_config_glab_resolved_version }}.tar.gz"
+    mode: "0644"
+  when: service_config_install_glab | bool
+
+- name: Create glab extract directory
+  ansible.builtin.file:
+    path: /tmp/glab_extract
+    state: directory
+    mode: "0755"
+  when: service_config_install_glab | bool
+
+- name: Extract glab archive
+  ansible.builtin.unarchive:
+    src: "/tmp/glab-{{ service_config_glab_resolved_version }}.tar.gz"
+    dest: /tmp/glab_extract/
+    remote_src: true
+    creates: /tmp/glab_extract/bin/glab
+  when: service_config_install_glab | bool
+
+- name: Install glab command
+  ansible.builtin.copy:
+    src: /tmp/glab_extract/bin/glab
+    dest: "{{ service_config_glab_install_dir }}/glab"
+    mode: "0755"
+    remote_src: true
+  when: service_config_install_glab | bool

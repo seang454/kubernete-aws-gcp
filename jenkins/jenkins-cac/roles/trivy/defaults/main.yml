@@ -1,0 +1,53 @@
+---
+# Trivy Ansible role defaults
+
+# Installation method: apt or binary
+trivy_install_method: apt
+
+# APT repository settings for Ubuntu/Debian
+trivy_apt_key_url: "https://get.trivy.dev/deb/public.key"
+trivy_apt_keyring_path: "/usr/share/keyrings/trivy.gpg"
+trivy_apt_repository: "deb [signed-by={{ trivy_apt_keyring_path }}] https://get.trivy.dev/deb generic main"
+trivy_apt_repo_file: "/etc/apt/sources.list.d/trivy.list"
+
+# Package name
+trivy_package_name: trivy
+
+# Optional: pin a package version, for example: "0.63.0"
+# Leave empty to install the latest available version from the repository.
+trivy_version: ""
+
+# Binary installation settings, used only when trivy_install_method: binary
+trivy_binary_version: "latest"
+trivy_binary_arch_map:
+  x86_64: "64bit"
+  amd64: "64bit"
+  aarch64: "ARM64"
+  arm64: "ARM64"
+trivy_binary_install_dir: "/usr/local/bin"
+
+# Run a test command after installation
+trivy_verify_install: true
+
+# Optional cache directory for Trivy database
+trivy_cache_dir: "/var/cache/trivy"
+trivy_create_cache_dir: true
+
+# Optional Trivy server endpoint. Enable this when other machines should use
+# this host as a remote Trivy vulnerability scanning service.
+trivy_server_enable: true
+trivy_server_domain: "trivy.example.com"
+trivy_server_listen_host: "127.0.0.1"
+trivy_server_port: 4954
+trivy_enable_https: true
+certbot_email: "pengseangsim210@gmail.com"
+certbot_staging: false
+certbot_redirect_http_to_https: true
+trivy_certbot_verify_renewal: false
+
+# Optional cron database update. Trivy downloads DB automatically during scans,
+# but enabling this keeps the DB warm for CI/CD servers.
+trivy_enable_db_update_cron: false
+trivy_db_update_cron_minute: "0"
+trivy_db_update_cron_hour: "3"
+trivy_db_update_command: "trivy image --download-db-only --cache-dir {{ trivy_cache_dir }}"

@@ -1,0 +1,144 @@
+---
+- name: Ensure ACME challenge webroot exists
+  ansible.builtin.file:
+    path: /var/www/html
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: harbor_enable_https | bool
+
+- name: Deploy Nginx config for Harbor
+  ansible.builtin.template:
+    src: harbor_nginx.conf.j2
+    dest: /etc/nginx/sites-available/harbor
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: reload nginx
+
+- name: Enable Harbor Nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/harbor
+    dest: /etc/nginx/sites-enabled/harbor
+    state: link
+  become: true
+  notify: reload nginx
+
+- name: Remove default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  become: true
+  notify: reload nginx
+
+- name: Test Nginx config before requesting certificate
+  ansible.builtin.command: nginx -t
+  become: true
+  changed_when: false
+
+- name: Ensure Nginx is started and enabled
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started
+  become: true
+
+- name: Flush Nginx handler before requesting certificate
+  ansible.builtin.meta: flush_handlers
+
+- name: Check if Harbor certificate already exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ harbor_hostname }}/fullchain.pem"
+  register: harbor_cert_status
+  when: harbor_enable_https | bool
+
+- name: Inspect existing Harbor certificate issuer
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509
+      -in /etc/letsencrypt/live/{{ harbor_hostname }}/fullchain.pem
+      -noout
+      -issuer
+  register: harbor_cert_issuer
+  changed_when: false
+  failed_when: false
+  when:
+    - harbor_enable_https | bool
+    - harbor_cert_status.stat.exists | default(false)
+
+- name: Determine whether the Harbor certificate needs issuance
+  ansible.builtin.set_fact:
+    harbor_cert_needs_issuance: >-
+      {{
+        not (harbor_cert_status.stat.exists | default(false))
+        or harbor_cert_issuer.rc | default(1) != 0
+        or (
+          certbot_staging | default(false) | bool
+          and not (
+            "Let's Encrypt" in (harbor_cert_issuer.stdout | default(''))
+            or "Fake LE" in (harbor_cert_issuer.stdout | default(''))
+          )
+        )
+        or (
+          not certbot_staging | default(false) | bool
+          and not (
+            "Let's Encrypt" in (harbor_cert_issuer.stdout | default(''))
+            and "Fake LE" not in (harbor_cert_issuer.stdout | default(''))
+          )
+        )
+      }}
+  when: harbor_enable_https | bool
+
+- name: Obtain Let's Encrypt certificate for Harbor
+  ansible.builtin.command: >-
+    certbot --nginx
+    -d {{ harbor_hostname }}
+    --non-interactive
+    --agree-tos
+    --email {{ certbot_email }}
+    {{ '--redirect' if certbot_redirect_http_to_https | default(true) | bool else '' }}
+    {{ '--staging' if certbot_staging | default(false) | bool else '' }}
+  register: harbor_certbot_result
+  changed_when: "'Certificate not yet due for renewal' not in harbor_certbot_result.stdout"
+  failed_when:
+    - harbor_certbot_result.rc != 0
+    - "'Certificate not yet due for renewal' not in (harbor_certbot_result.stdout | default(''))"
+    - "'too many certificates' not in (harbor_certbot_result.stderr | default(''))"
+  notify: reload nginx
+  become: true
+  when:
+    - harbor_enable_https | bool
+    - harbor_cert_needs_issuance | default(false) | bool
+
+- name: Warn if Let's Encrypt rate limit was reached for Harbor
+  ansible.builtin.debug:
+    msg: >-
+      Let's Encrypt production rate limit reached for {{ harbor_hostname }}.
+      HTTP remains functional. Set 'certbot_staging: true' in group_vars during testing.
+  when:
+    - harbor_certbot_result is defined
+    - "'too many certificates' in (harbor_certbot_result.stderr | default(''))"
+
+- name: Deploy final Nginx HTTPS config for Harbor
+  ansible.builtin.template:
+    src: harbor_nginx_https.conf.j2
+    dest: /etc/nginx/sites-available/harbor
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: reload nginx
+  when:
+    - harbor_enable_https | bool
+    - harbor_cert_status.stat.exists | default(false)
+
+- name: Verify Harbor certificate renewal works
+  ansible.builtin.command: certbot renew --dry-run
+  become: true
+  changed_when: false
+  when:
+    - harbor_enable_https | bool
+    - harbor_certbot_verify_renewal | default(false) | bool

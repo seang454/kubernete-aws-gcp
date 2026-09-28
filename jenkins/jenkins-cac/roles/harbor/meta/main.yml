@@ -1,0 +1,31 @@
+---
+galaxy_info:
+  role_name: harbor
+  author: pengseang
+  description: Install and configure Goharbor (container registry) via the official install.sh installer, managed as a systemd service.
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Fedora
+      versions:
+        - all
+  galaxy_tags:
+    - harbor
+    - registry
+    - docker
+    - devops
+
+dependencies:
+  - role: venv_bootstrap

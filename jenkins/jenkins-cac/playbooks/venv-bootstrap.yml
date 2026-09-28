@@ -1,0 +1,6 @@
+---
+- name: Bootstrap shared service environment
+  hosts: all
+  become: true
+  roles:
+    - venv_bootstrap

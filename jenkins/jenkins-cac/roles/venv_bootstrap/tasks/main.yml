@@ -1,0 +1,5 @@
+---
+- ansible.builtin.import_tasks: system_deps.yml
+- ansible.builtin.import_tasks: virtualenvs.yml
+- ansible.builtin.import_tasks: tools.yml
+- ansible.builtin.import_tasks: verify.yml

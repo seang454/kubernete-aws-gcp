@@ -1,0 +1,267 @@
+---
+- name: Validate SonarQube secrets
+  ansible.builtin.assert:
+    that:
+      - sonarqube_database_password is defined
+      - sonarqube_database_password | length >= 12
+    fail_msg: "Set a strong sonarqube_database_password before running this role."
+  no_log: true
+
+- name: Validate SonarQube HTTPS settings
+  ansible.builtin.assert:
+    that:
+      - sonarqube_domain is defined
+      - sonarqube_domain != "sonarqube.example.com"
+      - certbot_email is defined
+      - certbot_email != "admin@example.com"
+    fail_msg: "Set sonarqube_domain and certbot_email before enabling SonarQube HTTPS."
+  when: sonarqube_enable_https | bool
+
+- name: Enable and start PostgreSQL
+  ansible.builtin.systemd:
+    name: postgresql
+    enabled: true
+    state: started
+
+- name: Create SonarQube PostgreSQL user
+  community.postgresql.postgresql_user:
+    name: "{{ sonarqube_database_user }}"
+    password: "{{ sonarqube_database_password }}"
+    role_attr_flags: LOGIN
+  become_user: postgres
+  no_log: true
+
+- name: Create SonarQube PostgreSQL database
+  community.postgresql.postgresql_db:
+    name: "{{ sonarqube_database_name }}"
+    owner: "{{ sonarqube_database_user }}"
+  become_user: postgres
+
+- name: Grant SonarQube user privileges on public schema
+  community.postgresql.postgresql_privs:
+    database: "{{ sonarqube_database_name }}"
+    type: schema
+    objs: public
+    roles: "{{ sonarqube_database_user }}"
+    privs: ALL
+  become_user: postgres
+
+- name: Create SonarQube system group
+  ansible.builtin.group:
+    name: "{{ sonarqube_group }}"
+    system: true
+
+- name: Create SonarQube system user
+  ansible.builtin.user:
+    name: "{{ sonarqube_user }}"
+    group: "{{ sonarqube_group }}"
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Download SonarQube archive
+  ansible.builtin.get_url:
+    url: "https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-{{ sonarqube_version }}.zip"
+    dest: "/tmp/sonarqube-{{ sonarqube_version }}.zip"
+    mode: "0644"
+
+- name: Extract SonarQube archive
+  ansible.builtin.unarchive:
+    src: "/tmp/sonarqube-{{ sonarqube_version }}.zip"
+    dest: /opt
+    remote_src: true
+    creates: "/opt/sonarqube-{{ sonarqube_version }}"
+
+- name: Link SonarQube install directory
+  ansible.builtin.file:
+    src: "/opt/sonarqube-{{ sonarqube_version }}"
+    dest: "{{ sonarqube_install_dir }}"
+    state: link
+    force: true
+
+- name: Set SonarQube ownership
+  ansible.builtin.shell: |
+    chown -R {{ sonarqube_user }}:{{ sonarqube_group }} "/opt/sonarqube-{{ sonarqube_version }}"
+  changed_when: false
+
+- name: Configure SonarQube properties
+  ansible.builtin.template:
+    src: sonar.properties.j2
+    dest: "{{ sonarqube_install_dir }}/conf/sonar.properties"
+    owner: "{{ sonarqube_user }}"
+    group: "{{ sonarqube_group }}"
+    mode: "0640"
+  notify: restart sonarqube
+  no_log: true
+
+- name: Configure system limits
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/99-sonarqube.conf
+    mode: "0644"
+    content: |
+      {{ sonarqube_user }}   -   nofile   131072
+      {{ sonarqube_user }}   -   nproc    8192
+
+- name: Configure sysctl values
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-sonarqube.conf
+    mode: "0644"
+    content: |
+      vm.max_map_count=524288
+      fs.file-max=131072
+
+- name: Apply sysctl values
+  ansible.builtin.command: sysctl --system
+  changed_when: false
+
+- name: Install SonarQube systemd service
+  ansible.builtin.template:
+    src: sonarqube.service.j2
+    dest: /etc/systemd/system/sonarqube.service
+    mode: "0644"
+  notify: restart sonarqube
+
+- name: Enable and start SonarQube
+  ansible.builtin.systemd:
+    name: sonarqube
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Ensure ACME challenge webroot exists
+  ansible.builtin.file:
+    path: /var/www/html
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: sonarqube_enable_https | bool
+
+- name: Deploy Nginx config for SonarQube (HTTP pre-certbot)
+  ansible.builtin.template:
+    src: sonarqube_nginx_http.conf.j2
+    dest: /etc/nginx/sites-available/sonarqube
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+  when: sonarqube_enable_https | bool
+
+- name: Enable SonarQube Nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/sonarqube
+    dest: /etc/nginx/sites-enabled/sonarqube
+    state: link
+  notify: reload nginx
+  when: sonarqube_enable_https | bool
+
+- name: Remove default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+  when: sonarqube_enable_https | bool
+
+- name: Test Nginx config before requesting certificate
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  when: sonarqube_enable_https | bool
+
+- name: Enable and start Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started
+  when: sonarqube_enable_https | bool
+
+- name: Flush Nginx handler before requesting certificate
+  ansible.builtin.meta: flush_handlers
+  when: sonarqube_enable_https | bool
+
+- name: Check if SonarQube certificate already exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ sonarqube_domain }}/fullchain.pem"
+  register: sonarqube_cert_status
+  when: sonarqube_enable_https | bool
+
+- name: Inspect existing SonarQube certificate issuer
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509
+      -in /etc/letsencrypt/live/{{ sonarqube_domain }}/fullchain.pem
+      -noout
+      -issuer
+  register: sonarqube_cert_issuer
+  changed_when: false
+  failed_when: false
+  when:
+    - sonarqube_enable_https | bool
+    - sonarqube_cert_status.stat.exists | default(false)
+
+- name: Determine whether the SonarQube certificate needs issuance
+  ansible.builtin.set_fact:
+    sonarqube_cert_needs_issuance: >-
+      {{
+        not (sonarqube_cert_status.stat.exists | default(false))
+        or sonarqube_cert_issuer.rc | default(1) != 0
+        or (
+          certbot_staging | bool
+          and not (
+            "Let's Encrypt" in (sonarqube_cert_issuer.stdout | default(''))
+            or "Fake LE" in (sonarqube_cert_issuer.stdout | default(''))
+          )
+        )
+        or (
+          not certbot_staging | bool
+          and not (
+            "Let's Encrypt" in (sonarqube_cert_issuer.stdout | default(''))
+            and "Fake LE" not in (sonarqube_cert_issuer.stdout | default(''))
+          )
+        )
+      }}
+  when: sonarqube_enable_https | bool
+
+- name: Obtain Let's Encrypt certificate for SonarQube
+  ansible.builtin.command: >-
+    certbot --nginx
+    -d {{ sonarqube_domain }}
+    --non-interactive
+    --agree-tos
+    --email {{ certbot_email }}
+    {{ '--redirect' if certbot_redirect_http_to_https else '' }}
+    {{ '--staging' if certbot_staging else '' }}
+  register: sonarqube_certbot_result
+  changed_when: "'Certificate not yet due for renewal' not in sonarqube_certbot_result.stdout"
+  failed_when:
+    - sonarqube_certbot_result.rc != 0
+    - "'Certificate not yet due for renewal' not in sonarqube_certbot_result.stdout"
+  notify: reload nginx
+  when:
+    - sonarqube_enable_https | bool
+    - sonarqube_cert_needs_issuance | default(false) | bool
+
+- name: Deploy final Nginx HTTPS config for SonarQube
+  ansible.builtin.template:
+    src: sonarqube_nginx_https.conf.j2
+    dest: /etc/nginx/sites-available/sonarqube
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+  when: sonarqube_enable_https | bool
+
+- name: Ensure Certbot auto-renewal timer is enabled
+  ansible.builtin.systemd:
+    name: certbot.timer
+    enabled: true
+    state: started
+  when: sonarqube_enable_https | bool
+
+- name: Verify SonarQube certificate renewal works
+  ansible.builtin.command: certbot renew --dry-run
+  register: sonarqube_certbot_dry_run
+  changed_when: false
+  failed_when: sonarqube_certbot_dry_run.rc != 0
+  when:
+    - sonarqube_enable_https | bool
+    - sonarqube_certbot_verify_renewal | bool

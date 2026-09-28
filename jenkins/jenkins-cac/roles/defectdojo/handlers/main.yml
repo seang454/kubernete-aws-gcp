@@ -1,0 +1,29 @@
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart defectdojo
+  ansible.builtin.service:
+    name: defectdojo-gunicorn
+    state: restarted
+
+- name: restart celery worker
+  ansible.builtin.service:
+    name: defectdojo-celery-worker
+    state: restarted
+
+- name: restart celery beat
+  ansible.builtin.service:
+    name: defectdojo-celery-beat
+    state: restarted
+
+- name: reload nginx
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded
+
+- name: restart redis
+  ansible.builtin.service:
+    name: redis-server
+    state: restarted

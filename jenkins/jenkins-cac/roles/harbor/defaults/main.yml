@@ -1,0 +1,85 @@
+---
+# =============================================================================
+# ansible-role-harbor - default variables
+# Based on official docs: https://goharbor.io/docs/2.15.0/install-config/
+# =============================================================================
+
+# ---- Harbor release ---------------------------------------------------------
+# Must match a tag on https://github.com/goharbor/harbor/releases (include the "v")
+harbor_version: "v2.15.2"
+
+# "online"  -> small installer, pulls images from Docker Hub during install
+# "offline" -> bundles all images, larger download, no internet needed on host
+harbor_installer_type: "online"
+
+# ---- Where things live on the target host -----------------------------------
+harbor_install_parent_dir: "/opt"          # installer is extracted to <this>/harbor
+harbor_download_tmp_dir: "/opt/harbor-installer-tmp"
+harbor_data_volume: "/data"                # harbor.yml -> data_volume
+harbor_log_location: "/var/log/harbor"     # harbor.yml -> log.local.location
+
+# Convenience fact, do not override directly
+harbor_install_dir: "{{ harbor_install_parent_dir }}/harbor"
+
+# ---- Core harbor.yml settings -------------------------------------------------
+# The FQDN or IP clients/docker will use to reach Harbor. Do NOT use
+# localhost/127.0.0.1/0.0.0.0. Change this for your environment.
+harbor_hostname: "{{ harbor_domain | default('reg.yourdomain.com') }}"
+
+# We are running Harbor as HTTP-only here, on purpose: you said you will
+# terminate TLS yourself (systemd-managed reverse proxy + certbot certs) in
+# front of Harbor, so harbor.yml's own https block stays disabled.
+harbor_http_port: 8050
+
+harbor_enable_https: true
+harbor_certbot_verify_renewal: false
+
+# Initial admin password. Only used on first boot of Harbor - changing it
+# afterwards must be done from the Harbor Portal / API, not by re-running this role.
+harbor_admin_password: "Harbor12345"
+
+# Local Postgres root password used by Harbor's bundled DB container.
+harbor_database_password: "root123"
+
+# ---- Trivy (vulnerability scanner) --------------------------------------------
+# "everything it has as default" => install with Trivy enabled (this is the
+# --with-trivy flag to install.sh, i.e. NOT the stripped-down "without Trivy" mode)
+harbor_with_trivy: true
+harbor_trivy_ignore_unfixed: false
+harbor_trivy_security_check: "vuln"
+harbor_trivy_skip_update: false
+harbor_trivy_insecure: false
+harbor_trivy_github_token: ""
+
+# ---- jobservice / notification / cache (left at harbor.yml.tmpl defaults) -----
+harbor_jobservice_max_job_workers: 10
+harbor_notification_webhook_job_max_retry: 10
+harbor_log_level: "info"
+harbor_log_rotate_count: 50
+harbor_log_rotate_size: "200M"
+harbor_cache_enabled: false
+harbor_cache_expire_hours: 24
+
+# ---- Proxy (leave blank if you don't need one) --------------------------------
+harbor_http_proxy: ""
+harbor_https_proxy: ""
+harbor_no_proxy: "127.0.0.1,localhost,core,registry"
+
+# ---- Docker installation -------------------------------------------------------
+# Installs Docker Engine + docker compose plugin via the official
+# get.docker.com convenience script if `docker` isn't already present.
+harbor_manage_docker: true
+harbor_docker_users: []          # e.g. ["ubuntu", "deploy"] -> added to the docker group
+
+# ---- systemd unit ---------------------------------------------------------------
+# You mentioned you manage services via systemd, so this role also drops a
+# harbor.service unit wrapping `docker compose up/down -d` in the install dir,
+# so you can `systemctl enable --now harbor` / stop / restart it like any
+# other service instead of calling docker compose manually.
+harbor_manage_systemd: true
+harbor_systemd_service_name: "harbor"
+
+# ---- Behaviour toggles -----------------------------------------------------------
+# install.sh is only re-run when this is true OR when docker-compose.yml is
+# not yet present in harbor_install_dir (first run).
+harbor_force_reinstall: false

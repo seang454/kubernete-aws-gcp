@@ -1,0 +1,9 @@
+---
+- name: Install Harbor via install.sh (HTTP-only, TLS handled by your own reverse proxy)
+  hosts: harbor
+  become: true
+  become_method: sudo
+  become_user: root
+  become_flags: "-n"
+  roles:
+    - role: harbor

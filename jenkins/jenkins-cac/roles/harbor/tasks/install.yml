@@ -1,0 +1,63 @@
+---
+- name: Check if Harbor has already been installed (docker-compose.yml present)
+  ansible.builtin.stat:
+    path: "{{ harbor_install_dir }}/docker-compose.yml"
+  register: harbor_compose_file
+
+- name: Stop Harbor before reinstalling (only when harbor_force_reinstall is true)
+  ansible.builtin.command:
+    cmd: docker compose down
+    chdir: "{{ harbor_install_dir }}"
+  become: true
+  when:
+    - harbor_force_reinstall | bool
+    - harbor_compose_file.stat.exists
+  changed_when: true
+
+- name: Run install.sh {{ '(with Trivy)' if harbor_with_trivy else '(without Trivy)' }}
+  ansible.builtin.command:
+    cmd: "./install.sh{{ ' --with-trivy' if harbor_with_trivy else '' }}"
+    chdir: "{{ harbor_install_dir }}"
+  become: true
+  register: harbor_install_result
+  when: (not harbor_compose_file.stat.exists) or (harbor_force_reinstall | bool)
+  changed_when: true
+
+- name: Show install.sh output (only when it actually ran)
+  ansible.builtin.debug:
+    var: harbor_install_result.stdout_lines
+  when: harbor_install_result is not skipped
+
+- name: Wait for Docker daemon to respond before starting Harbor containers
+  ansible.builtin.command: docker info
+  register: harbor_up_docker_info
+  until: harbor_up_docker_info.rc == 0
+  retries: 15
+  delay: 2
+  changed_when: false
+  become: true
+
+- name: Ensure Harbor containers are up
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ harbor_install_dir }}"
+  become: true
+  register: harbor_up_result
+  changed_when: "'Started' in harbor_up_result.stdout or 'Created' in harbor_up_result.stdout"
+
+- name: Wait for the Harbor portal to respond on the configured HTTP port
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ harbor_http_port }}/api/v2.0/systeminfo"
+    status_code: [200, 401, 403, 404]
+  register: harbor_health
+  until: harbor_health.status is defined
+  retries: 30
+  delay: 10
+  ignore_errors: true
+
+- name: Report Harbor health check result
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Harbor is responding on http://' + harbor_hostname + ':' + (harbor_http_port | string)
+         if (harbor_health.status is defined and harbor_health.status in [200, 401, 403, 404])
+         else 'Harbor did not respond within the timeout - check: docker compose -f ' + harbor_install_dir + '/docker-compose.yml ps' }}

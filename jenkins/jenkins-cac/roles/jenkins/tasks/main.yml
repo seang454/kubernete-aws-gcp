@@ -1,0 +1,228 @@
+---
+# ============================================================
+# Role: jenkins
+# Purpose: Native installation of Java 21, Jenkins LTS package,
+#          systemd service, and Nginx/Certbot reverse proxy.
+# ============================================================
+
+- name: Validate Jenkins HTTPS settings
+  ansible.builtin.assert:
+    that:
+      - jenkins_domain is defined
+      - jenkins_domain != "jenkins.example.com"
+      - certbot_email is defined
+      - certbot_email != "admin@example.com"
+    fail_msg: "Set jenkins_domain and certbot_email before enabling Jenkins HTTPS."
+  when: jenkins_enable_https | bool
+
+- name: Ensure legacy Jenkins Docker containers are stopped and removed
+  community.docker.docker_container:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - jenkins-blueocean
+    - jenkins-docker
+  failed_when: false
+  become: true
+
+- name: Remove legacy Jenkins Docker build directory
+  ansible.builtin.file:
+    path: /opt/jenkins-docker
+    state: absent
+  become: true
+
+# ---- Step 1: Install Java 21 Prerequisite ----
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+
+- name: Install Java 21 OpenJDK and dependencies
+  ansible.builtin.apt:
+    name:
+      - fontconfig
+      - openjdk-21-jre
+      - wget
+      - curl
+    state: present
+  become: true
+
+# ---- Step 2: Add Jenkins Official Debian-Stable Apt Repository & Keyring ----
+- name: Ensure keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Download Jenkins official GPG key
+  ansible.builtin.get_url:
+    url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+    dest: /etc/apt/keyrings/jenkins-keyring.asc
+    mode: "0644"
+  become: true
+
+- name: Add Jenkins debian-stable apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/"
+    filename: jenkins
+    state: present
+    update_cache: true
+  become: true
+
+# ---- Step 3: Install Jenkins Package ----
+- name: Install Jenkins LTS package
+  ansible.builtin.apt:
+    name: jenkins
+    state: present
+    update_cache: true
+  become: true
+
+# ---- Step 4: Enable and Start Jenkins Systemd Service ----
+- name: Enable and start Jenkins systemd service
+  ansible.builtin.systemd:
+    name: jenkins
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
+# ---- Step 5: Nginx & SSL Reverse Proxy ----
+- name: Ensure ACME challenge webroot directory exists
+  ansible.builtin.file:
+    path: /var/www/html
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Deploy Nginx config for Jenkins (HTTP, pre-certbot)
+  ansible.builtin.template:
+    src: jenkins_nginx_http.conf.j2
+    dest: "/etc/nginx/sites-available/jenkins"
+    mode: "0644"
+  become: true
+  notify: Reload Nginx
+
+- name: Enable Jenkins Nginx site
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/jenkins"
+    dest: "/etc/nginx/sites-enabled/jenkins"
+    state: link
+  become: true
+  notify: Reload Nginx
+
+- name: Remove default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  become: true
+  notify: Reload Nginx
+
+- name: Test Nginx config
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  become: true
+
+- name: Ensure Nginx is started and enabled
+  ansible.builtin.systemd:
+    name: nginx
+    state: started
+    enabled: true
+  become: true
+
+- name: Flush Nginx handlers before requesting certificate
+  ansible.builtin.meta: flush_handlers
+
+- name: Check if SSL certificate already exists for Jenkins
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ jenkins_domain }}/fullchain.pem"
+  register: cert_status
+  when: jenkins_enable_https | bool
+
+- name: Inspect existing Jenkins certificate issuer
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509
+      -in /etc/letsencrypt/live/{{ jenkins_domain }}/fullchain.pem
+      -noout
+      -issuer
+  register: jenkins_cert_issuer
+  changed_when: false
+  failed_when: false
+  when:
+    - jenkins_enable_https | bool
+    - cert_status.stat.exists | default(false)
+
+- name: Determine whether the Jenkins certificate needs issuance
+  ansible.builtin.set_fact:
+    jenkins_cert_needs_issuance: >-
+      {{
+        not (cert_status.stat.exists | default(false))
+        or jenkins_cert_issuer.rc | default(1) != 0
+        or (
+          certbot_staging | bool
+          and not (
+            "Let's Encrypt" in (jenkins_cert_issuer.stdout | default(''))
+            or "Fake LE" in (jenkins_cert_issuer.stdout | default(''))
+          )
+        )
+        or (
+          not certbot_staging | bool
+          and not (
+            "Let's Encrypt" in (jenkins_cert_issuer.stdout | default(''))
+            and "Fake LE" not in (jenkins_cert_issuer.stdout | default(''))
+          )
+        )
+      }}
+  when: jenkins_enable_https | bool
+
+- name: Obtain Let's Encrypt certificate for Jenkins
+  ansible.builtin.command:
+    cmd: >
+      certbot --nginx
+      -d {{ jenkins_domain }}
+      --non-interactive
+      --agree-tos
+      --email {{ certbot_email }}
+      {{ '--redirect' if certbot_redirect_http_to_https else '' }}
+      {{ '--staging' if certbot_staging else '' }}
+  become: true
+  register: certbot_result
+  changed_when: "'Certificate not yet due for renewal' not in certbot_result.stdout"
+  failed_when:
+    - certbot_result.rc != 0
+    - "'Certificate not yet due for renewal' not in (certbot_result.stdout | default(''))"
+    - "'too many certificates' not in (certbot_result.stderr | default(''))"
+  notify: Reload Nginx
+  when:
+    - jenkins_enable_https | bool
+    - jenkins_cert_needs_issuance | default(false) | bool
+
+- name: Deploy final Nginx HTTPS config for Jenkins
+  ansible.builtin.template:
+    src: jenkins_nginx_https.conf.j2
+    dest: "/etc/nginx/sites-available/jenkins"
+    mode: "0644"
+  become: true
+  notify: Reload Nginx
+  when: jenkins_enable_https | bool
+
+- name: Ensure Certbot auto-renewal timer is enabled
+  ansible.builtin.systemd:
+    name: certbot.timer
+    enabled: true
+    state: started
+  become: true
+  when: jenkins_enable_https | bool
+
+- name: Verify Jenkins certificate renewal works
+  ansible.builtin.command: certbot renew --dry-run
+  become: true
+  register: jenkins_certbot_dry_run
+  changed_when: false
+  failed_when: jenkins_certbot_dry_run.rc != 0
+  when:
+    - jenkins_enable_https | bool
+    - jenkins_certbot_verify_renewal | bool

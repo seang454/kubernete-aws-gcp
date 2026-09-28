@@ -1,0 +1,15 @@
+services:
+  uwsgi:
+    restart: unless-stopped
+  celeryworker:
+    restart: unless-stopped
+  celerybeat:
+    restart: unless-stopped
+  postgres:
+    restart: unless-stopped
+  valkey:
+    restart: unless-stopped
+  nginx:
+    restart: unless-stopped
+  initializer:
+    restart: "no"

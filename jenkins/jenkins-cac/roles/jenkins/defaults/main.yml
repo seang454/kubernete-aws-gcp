@@ -1,0 +1,9 @@
+---
+jenkins_domain: "jenkins.example.com"
+certbot_email: "pengseangsim210@gmail.com"
+jenkins_enable_https: true
+certbot_staging: false
+certbot_redirect_http_to_https: true
+jenkins_certbot_verify_renewal: false
+
+jenkins_http_port: 8080

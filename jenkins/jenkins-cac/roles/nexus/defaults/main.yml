@@ -1,0 +1,31 @@
+---
+nexus_domain: "nexus.example.com"
+nexus_docker_repo_domain: "docker.example.com"
+certbot_email: "pengseangsim210@gmail.com"
+nexus_enable_https: true
+certbot_staging: false
+certbot_redirect_http_to_https: true
+nexus_certbot_verify_renewal: false
+nexus_auth_rate_limit_min_wait_seconds: 300
+nexus_auth_rate_limit_buffer_seconds: 30
+nexus_reset_data: false
+
+nexus_admin_username: admin
+nexus_admin_password: ""
+
+nexus_network: nexus
+nexus_data_volume: nexus-data
+nexus_image: sonatype/nexus3:latest
+
+nexus_port: 8081
+nexus_docker_port: 8082
+
+# Nginx proxies both endpoints, so Docker publishes them only on this VM.
+nexus_bind_address: "127.0.0.1"
+
+nexus_jvm_options: "-Xms512m -Xmx1024m -XX:MaxDirectMemorySize=512m"
+
+nexus_docker_blob: docker-hosted
+nexus_helm_blob: helm-hosted
+nexus_docker_repo_name: docker-hosted
+nexus_helm_repo_name: helm-hosted
