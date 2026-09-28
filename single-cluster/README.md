@@ -395,6 +395,7 @@ ansible-playbook -i inventory.ini uninstall.yml
 * [Architecture & Traffic Flow Diagram](architecture-diagram.md)
 * [Zero-Trust HTTPS Gateway Guide (Gateway API + cert-manager + Cloudflare Tunnel)](zero-trust-https-gateway-guide.md)
 * [Cloudflare Tunnel & Traefik Gateway API Architecture Guide & FAQ](CLOUDFLARE_TUNNEL_BEST_PRACTICES_AND_FAQ.md)
+* [Kubernetes Gateway API Creation & Security Guide](KUBERNETES_GATEWAY_API_CREATION_GUIDE.md)
 * [Observability Stack Deep-Dive Guide](observability-architecture-guide.md)
 * [Logging & Storage Tools Deep-Dive Guide](logging-tools-guide.md)
 
