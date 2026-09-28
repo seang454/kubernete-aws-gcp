@@ -35,7 +35,12 @@ data:
         originRequest:
           originServerName: "{{ base_domain | default('seang.shop') }}"
 
-      # Wildcard catch-all for remaining cluster services
+      # ========================================================================
+      # CRITICAL: Wildcard catch-all for all remaining cluster services
+      # Because this rule (*.seang.shop) forwards to Traefik, you NEVER need
+      # to update this file or restart the pod when deploying a new service
+      # (e.g., kafka.seang.shop). Traefik Gateway API handles the routing!
+      # ========================================================================
       - hostname: "*.{{ base_domain | default('seang.shop') }}"
         service: https://traefik.{{ traefik_namespace | default('traefik') }}.svc.{{ k8s_cluster_domain | default('k8scluster') }}:443
         originRequest:

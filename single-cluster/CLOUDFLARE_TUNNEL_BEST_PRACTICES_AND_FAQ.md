@@ -265,6 +265,26 @@ spec:
             secretName: cloudflared-credentials
 ```
 
+### 💡 Does CLI Mode require updating `config.yaml` when adding a new service?
+
+* **Normally in CLI mode:** Yes, this is usually a big limitation—teams have to edit `config.yaml`, update the ConfigMap, and restart the `cloudflared` pods whenever a new service is added.
+* **In this architecture:** **NO! You do NOT have to update `config.yaml`!**  
+  Because your config includes the wildcard rule:
+  ```yaml
+  - hostname: "*.seang.shop"
+    service: https://traefik.traefik.svc.k8scluster:443
+  ```
+  Any request for `kafka.seang.shop`, `myapp.seang.shop`, or any other subdomain automatically matches `*.seang.shop` and gets forwarded directly to Traefik!
+
+#### When WOULD you have to update `config.yaml` in CLI mode?
+You only need to edit `config.yaml` and restart pods if:
+1. You introduce a **completely different base domain** (e.g. `api.otherclient.com` instead of `*.seang.shop`).
+2. You want a specific service to **bypass Traefik** and route directly to a specific backend pod.
+
+#### Why Token Mode is still preferred:
+* In **CLI mode**, you must maintain that wildcard rule in Git, mount ConfigMaps, and manage secret files.
+* In **Token mode (`--url https://traefik...:443`)**, there is no file at all. It forwards **100% of all traffic** directly to Traefik with zero configuration files to maintain or update.
+
 ---
 
 ## 🚦 5. Step 4: In-Cluster Traefik Gateway & TLS Setup

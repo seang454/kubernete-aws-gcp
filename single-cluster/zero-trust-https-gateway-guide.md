@@ -120,6 +120,12 @@ If you do not want to enter any payment info into Cloudflare Zero Trust, use the
    cloudflared tunnel route dns k8s-monitoring-tunnel "seang.shop"
    ```
 
+> [!TIP]
+> **Why the Wildcard Route Eliminates Pod Restarts in CLI Mode:**
+> In standard CLI deployments, teams must edit `config.yaml` and restart `cloudflared` pods every time a new service is deployed.
+> However, because our template (`cloudflared-cli-config.yaml.j2`) includes `- hostname: "*.seang.shop" -> https://traefik...`, any new service (such as `kafka.seang.shop`) is automatically captured and forwarded to Traefik!
+> You only need to update `config.yaml` if you add a completely different base domain or need to bypass Traefik.
+
 ---
 
 ### Step 3: Set Cloudflare SSL/TLS to Full (Strict)
