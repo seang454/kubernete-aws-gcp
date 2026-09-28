@@ -59,6 +59,12 @@ cert-manager uses this API token to dynamically create and delete `_acme-challen
 
 Choose either **Option 2A (Dashboard-Managed)** or **Option 2B (CLI-Managed)**.
 
+> [!IMPORTANT]
+> **Token Mode and CLI Mode are mutually exclusive alternatives. DO NOT deploy both!**
+> * If you deploy **Option 2A (Token)**, do not deploy Option 2B (CLI).
+> * If you deploy **Option 2B (CLI)**, do not deploy Option 2A (Token).
+> * See the detailed [Cloudflare Tunnel & Traefik Gateway API Architecture Guide & FAQ](CLOUDFLARE_TUNNEL_BEST_PRACTICES_AND_FAQ.md) for full architecture notes, service reuse rules, and troubleshooting.
+
 #### Option 2A: Dashboard-Managed Tunnel (Recommended if you have Cloudflare Zero Trust)
 
 1. Open [Cloudflare Zero Trust Dashboard](https://one.dash.cloudflare.com/).
