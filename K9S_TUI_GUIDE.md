@@ -4,9 +4,52 @@ K9s is an enterprise-grade terminal-based UI designed to interact with and manag
 
 ---
 
+## Quickstart: Prerequisites & Installation
+
+### 1. Locate and Copy Your Kubeconfig
+K9s needs your cluster's access credentials to connect:
+* If your cluster was deployed via **Kubespray** or **kubeadm**, log into your master/control-plane node.
+* Copy the contents of `/etc/kubernetes/admin.conf`.
+* Paste it onto your management machine (like your local laptop) into the file `~/.kube/config`:
+  ```bash
+  # On your local machine / laptop:
+  mkdir -p ~/.kube
+  # Paste the contents of admin.conf into ~/.kube/config:
+  nano ~/.kube/config
+  chmod 600 ~/.kube/config
+  ```
+* *Tip*: Ensure the `server: https://<MASTER_IP>:6443` address in `~/.kube/config` points to your master node's accessible IP address.
+
+### 2. Install K9s on Your Machine
+Run the appropriate command on your workstation's terminal based on your operating system:
+
+* **Linux** (via binary script):
+  ```bash
+  curl -sS https://webi.sh/k9s | sh
+  source ~/.config/env
+  ```
+* **macOS** (via Homebrew):
+  ```bash
+  brew install derailed/k9s/k9s
+  ```
+* **Windows** (via Winget or Scoop):
+  ```powershell
+  winget install derailed.k9s
+  # or
+  scoop install k9s
+  ```
+
+### 3. Launch K9s
+Once installed and your `~/.kube/config` is in place, simply type:
+```bash
+k9s
+```
+
+---
+
 ## Table of Contents
 
-1. [Installation & Upgrades (All Platforms)](#1-installation--upgrades-all-platforms)
+1. [Installation & Upgrades (All Options)](#1-installation--upgrades-all-options)
 2. [Launching K9s & CLI Flags](#2-launching-k9s--cli-flags)
 3. [Interface Anatomy & Core Mental Model](#3-interface-anatomy--core-mental-model)
 4. [Resource Navigation: Colon (`:`) Commands](#4-resource-navigation-colon--commands)
@@ -34,13 +77,14 @@ K9s is an enterprise-grade terminal-based UI designed to interact with and manag
 
 ---
 
-## 1. Installation & Upgrades (All Platforms)
+## 1. Installation & Upgrades (All Options)
 
 ### Linux (Ubuntu / Debian / RHEL / Arch)
 
 ```bash
 # Option A: Automatic web install (fastest, sets up binary in ~/.local/bin)
-curl -sS https://webinstall.dev/k9s | bash
+curl -sS https://webi.sh/k9s | sh
+source ~/.config/env
 
 # Option B: Official GitHub binary download (x86_64)
 K9S_VERSION=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest | grep tag_name | cut -d '"' -f 4)
