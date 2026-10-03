@@ -6,34 +6,81 @@ K9s is an enterprise-grade terminal-based UI designed to interact with and manag
 
 ## Table of Contents
 
-1. [Launching K9s & CLI Flags](#1-launching-k9s--cli-flags)
-2. [Interface Anatomy & Core Mental Model](#2-interface-anatomy--core-mental-model)
-3. [Resource Navigation: Colon (`:`) Commands](#3-resource-navigation-colon--commands)
-4. [Managing Pods: Logs, Shells, and Debugging](#4-managing-pods-logs-shells-and-debugging)
-5. [Managing Workloads: Deployments, StatefulSets, DaemonSets](#5-managing-workloads-deployments-statefulsets-daemonsets)
-6. [Managing Nodes: Cordon, Uncordon, Drain & Root Host Shell](#6-managing-nodes-cordon-uncordon-drain--root-host-shell)
-7. [Secrets, ConfigMaps, and Storage](#7-secrets-configmaps-and-storage)
-8. [Advanced Filtering, Sorting, and Namespaces](#8-advanced-filtering-sorting-and-namespaces)
-9. [Multi-Resource Batch Operations (Mark Mode)](#9-multi-resource-batch-operations-mark-mode)
-10. [Cluster Sanitizer & Health Auditing: Popeye (`:popeye`)](#10-cluster-sanitizer--health-auditing-popeye-popeye)
-11. [Live HTTP Benchmarking (`Shift-B`)](#11-live-http-benchmarking-shift-b)
-12. [Native Helm Release Management (`:helm`)](#12-native-helm-release-management-helm)
-13. [RBAC Authorization & "Can-I" Auditing (`:can`)](#13-rbac-authorization--can-i-auditing-can)
-14. [Advanced Visualizations: Pulses & X-Ray](#14-advanced-visualizations-pulses--x-ray)
-15. [Persistent Port-Forward Dashboard (`:pf`)](#15-persistent-port-forward-dashboard-pf)
-16. [Screen Dumps & Exporting Table Snapshots (`Ctrl-E`)](#16-screen-dumps--exporting-table-snapshots-ctrl-e)
-17. [Custom Plugin Ecosystem (`plugins.yaml`)](#17-custom-plugin-ecosystem-pluginsyaml)
-18. [Custom Views & Custom JSONPath Columns (`views.yaml`)](#18-custom-views--custom-jsonpath-columns-viewsyaml)
-19. [Custom Hotkeys (`hotkeys.yaml`) & Aliases (`aliases.yaml`)](#19-custom-hotkeys-hotkeysyaml--aliases-aliasesyaml)
-20. [Terminal Themes & Skins (`skins/`)](#20-terminal-themes--skins-skins)
-21. [Deep Configuration Reference (`config.yaml`)](#21-deep-configuration-reference-configyaml)
-22. [Troubleshooting & Environment Variables](#22-troubleshooting--environment-variables)
-23. [Expert-Level Hidden Mechanics & Edge Cases](#23-expert-level-hidden-mechanics--edge-cases)
-24. [Master Quick-Reference Cheat Sheet](#24-master-quick-reference-cheat-sheet)
+1. [Installation & Upgrades (All Platforms)](#1-installation--upgrades-all-platforms)
+2. [Launching K9s & CLI Flags](#2-launching-k9s--cli-flags)
+3. [Interface Anatomy & Core Mental Model](#3-interface-anatomy--core-mental-model)
+4. [Resource Navigation: Colon (`:`) Commands](#4-resource-navigation-colon--commands)
+5. [Managing Pods: Logs, Shells, and Debugging](#5-managing-pods-logs-shells-and-debugging)
+6. [Managing Workloads: Deployments, StatefulSets, DaemonSets](#6-managing-workloads-deployments-statefulsets-daemonsets)
+7. [Managing Nodes: Cordon, Uncordon, Drain & Root Host Shell](#7-managing-nodes-cordon-uncordon-drain--root-host-shell)
+8. [Secrets, ConfigMaps, and Storage](#8-secrets-configmaps-and-storage)
+9. [Advanced Filtering, Sorting, and Namespaces](#9-advanced-filtering-sorting-and-namespaces)
+10. [Multi-Resource Batch Operations (Mark Mode)](#10-multi-resource-batch-operations-mark-mode)
+11. [Cluster Sanitizer & Health Auditing: Popeye (`:popeye`)](#11-cluster-sanitizer--health-auditing-popeye-popeye)
+12. [Live HTTP Benchmarking (`Shift-B`)](#12-live-http-benchmarking-shift-b)
+13. [Native Helm Release Management (`:helm`)](#13-native-helm-release-management-helm)
+14. [RBAC Authorization & "Can-I" Auditing (`:can`)](#14-rbac-authorization--can-i-auditing-can)
+15. [Advanced Visualizations: Pulses & X-Ray](#15-advanced-visualizations-pulses--x-ray)
+16. [Persistent Port-Forward Dashboard (`:pf`)](#16-persistent-port-forward-dashboard-pf)
+17. [Screen Dumps & Exporting Table Snapshots (`Ctrl-E`)](#17-screen-dumps--exporting-table-snapshots-ctrl-e)
+18. [Custom Plugin Ecosystem (`plugins.yaml`)](#18-custom-plugin-ecosystem-pluginsyaml)
+19. [Custom Views & Custom JSONPath Columns (`views.yaml`)](#19-custom-views--custom-jsonpath-columns-viewsyaml)
+20. [Custom Hotkeys (`hotkeys.yaml`) & Aliases (`aliases.yaml`)](#20-custom-hotkeys-hotkeysyaml--aliases-aliasesyaml)
+21. [Terminal Themes & Skins (`skins/`)](#21-terminal-themes--skins-skins)
+22. [Deep Configuration Reference (`config.yaml`)](#22-deep-configuration-reference-configyaml)
+23. [Troubleshooting & Environment Variables](#23-troubleshooting--environment-variables)
+24. [Expert-Level Hidden Mechanics & Edge Cases](#24-expert-level-hidden-mechanics--edge-cases)
+25. [Master Quick-Reference Cheat Sheet](#25-master-quick-reference-cheat-sheet)
 
 ---
 
-## 1. Launching K9s & CLI Flags
+## 1. Installation & Upgrades (All Platforms)
+
+### Linux (Ubuntu / Debian / RHEL / Arch)
+
+```bash
+# Option A: Automatic web install (fastest, sets up binary in ~/.local/bin)
+curl -sS https://webinstall.dev/k9s | bash
+
+# Option B: Official GitHub binary download (x86_64)
+K9S_VERSION=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest | grep tag_name | cut -d '"' -f 4)
+curl -Lo k9s.tar.gz "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_Linux_amd64.tar.gz"
+tar -xzf k9s.tar.gz k9s
+sudo mv k9s /usr/local/bin/
+rm k9s.tar.gz
+
+# Option C: Snap
+sudo snap install k9s
+
+# Option D: Arch Linux
+sudo pacman -S k9s
+```
+
+### macOS (Homebrew / MacPorts)
+```bash
+brew install derailed/k9s/k9s
+# or
+port install k9s
+```
+
+### Windows (Winget / Chocolatey / Scoop)
+```powershell
+winget install derailed.k9s
+# or
+choco install k9s
+# or
+scoop install k9s
+```
+
+### Zero-Install: Running via Docker
+If you do not want to install any binary locally:
+```bash
+docker run --rm -it -v ~/.kube/config:/root/.kube/config derailed/k9s
+```
+
+---
+
+## 2. Launching K9s & CLI Flags
 
 Start K9s with specific operational contexts, namespaces, or safety modes:
 
@@ -75,7 +122,7 @@ KUBECONFIG=~/.kube/eks.yaml:~/.kube/gke.yaml:~/.kube/onprem.yaml k9s
 
 ---
 
-## 2. Interface Anatomy & Core Mental Model
+## 3. Interface Anatomy & Core Mental Model
 
 K9s follows Vim-style navigation principles:
 
@@ -98,7 +145,7 @@ K9s follows Vim-style navigation principles:
 
 ---
 
-## 3. Resource Navigation: Colon (`:`) Commands
+## 4. Resource Navigation: Colon (`:`) Commands
 
 Press `:` in normal mode, type the alias, and hit `Enter`:
 
@@ -129,7 +176,7 @@ Press `:` in normal mode, type the alias, and hit `Enter`:
 
 ---
 
-## 4. Managing Pods: Logs, Shells, and Debugging
+## 5. Managing Pods: Logs, Shells, and Debugging
 
 ### Highlight Actions on Pods
 
@@ -161,7 +208,7 @@ For modern containers that do not have `/bin/sh` or `/bin/bash`:
 
 ---
 
-## 5. Managing Workloads: Deployments, StatefulSets, DaemonSets
+## 6. Managing Workloads: Deployments, StatefulSets, DaemonSets
 
 When highlighting a Deployment (`:deploy`), StatefulSet (`:sts`), or DaemonSet (`:ds`):
 
@@ -173,7 +220,7 @@ When highlighting a Deployment (`:deploy`), StatefulSet (`:sts`), or DaemonSet (
 
 ---
 
-## 6. Managing Nodes: Cordon, Uncordon, Drain & Root Host Shell
+## 7. Managing Nodes: Cordon, Uncordon, Drain & Root Host Shell
 
 When in the Node view (`:node`):
 
@@ -189,7 +236,7 @@ When in the Node view (`:node`):
 
 ---
 
-## 7. Secrets, ConfigMaps, and Storage
+## 8. Secrets, ConfigMaps, and Storage
 
 ### Secrets (`:sec`)
 * Highlight a Secret and press **`Enter`** to inspect keys and values.
@@ -203,7 +250,7 @@ When in the Node view (`:node`):
 
 ---
 
-## 8. Advanced Filtering, Sorting, and Namespaces
+## 9. Advanced Filtering, Sorting, and Namespaces
 
 ### Namespace Switching
 * **`0`**: View resources across **all namespaces** simultaneously.
@@ -230,7 +277,7 @@ Press **`/`** on any table view:
 
 ---
 
-## 9. Multi-Resource Batch Operations (Mark Mode)
+## 10. Multi-Resource Batch Operations (Mark Mode)
 
 Perform batch actions across multiple items without repetitive clicks:
 
@@ -242,7 +289,7 @@ Perform batch actions across multiple items without repetitive clicks:
 
 ---
 
-## 10. Cluster Sanitizer & Health Auditing: Popeye (`:popeye`)
+## 11. Cluster Sanitizer & Health Auditing: Popeye (`:popeye`)
 
 K9s integrates **Popeye**, an autonomous cluster sanitizer that inspects your live cluster for misconfigurations, security oversights, and wasted capacity.
 
@@ -257,7 +304,7 @@ K9s integrates **Popeye**, an autonomous cluster sanitizer that inspects your li
 
 ---
 
-## 11. Live HTTP Benchmarking (`Shift-B`)
+## 12. Live HTTP Benchmarking (`Shift-B`)
 
 K9s has an integrated benchmarking engine powered by `hey` or `vegeta`:
 
@@ -273,7 +320,7 @@ K9s has an integrated benchmarking engine powered by `hey` or `vegeta`:
 
 ---
 
-## 12. Native Helm Release Management (`:helm`)
+## 13. Native Helm Release Management (`:helm`)
 
 Manage Helm charts without leaving K9s:
 
@@ -285,7 +332,7 @@ Manage Helm charts without leaving K9s:
 
 ---
 
-## 13. RBAC Authorization & "Can-I" Auditing (`:can`)
+## 14. RBAC Authorization & "Can-I" Auditing (`:can`)
 
 Quickly audit authorization rights without executing manual `kubectl auth can-i`:
 
@@ -298,7 +345,7 @@ Quickly audit authorization rights without executing manual `kubectl auth can-i`
 
 ---
 
-## 14. Advanced Visualizations: Pulses & X-Ray
+## 15. Advanced Visualizations: Pulses & X-Ray
 
 ### Pulses (`:pulses`)
 A real-time cockpit providing a high-level visual health summary of:
@@ -321,7 +368,7 @@ Generates an interactive tree view mapping relationships between Kubernetes comp
 
 ---
 
-## 15. Persistent Port-Forward Dashboard (`:pf`)
+## 16. Persistent Port-Forward Dashboard (`:pf`)
 
 * Standard `kubectl port-forward` commands terminate if the shell terminates.
 * In K9s, port-forwards initiated via **`Shift-F`** persist in the background managed by the K9s process.
@@ -332,7 +379,7 @@ Generates an interactive tree view mapping relationships between Kubernetes comp
 
 ---
 
-## 16. Screen Dumps & Exporting Table Snapshots (`Ctrl-E`)
+## 17. Screen Dumps & Exporting Table Snapshots (`Ctrl-E`)
 
 Export the current view table or screen data directly for documentation, incident tickets, or sharing on Slack:
 
@@ -342,7 +389,7 @@ Export the current view table or screen data directly for documentation, inciden
 
 ---
 
-## 17. Custom Plugin Ecosystem (`plugins.yaml`)
+## 18. Custom Plugin Ecosystem (`plugins.yaml`)
 
 Map any CLI tool or custom shell script to a hotkey inside K9s views.
 
@@ -427,7 +474,7 @@ plugins:
 
 ---
 
-## 18. Custom Views & Custom JSONPath Columns (`views.yaml`)
+## 19. Custom Views & Custom JSONPath Columns (`views.yaml`)
 
 Customize table columns and expose custom JSONPath attributes directly in K9s tables.
 
@@ -455,7 +502,7 @@ k9s:
 
 ---
 
-## 19. Custom Hotkeys (`hotkeys.yaml`) & Aliases (`aliases.yaml`)
+## 20. Custom Hotkeys (`hotkeys.yaml`) & Aliases (`aliases.yaml`)
 
 ### Custom Fast-Navigation Hotkeys
 Jump directly to frequently used views with dedicated keys:
@@ -489,7 +536,7 @@ aliases:
 
 ---
 
-## 20. Terminal Themes & Skins (`skins/`)
+## 21. Terminal Themes & Skins (`skins/`)
 
 Customize the entire color palette (Solarized, Dracula, Gruvbox, Nord, Cyberpunk):
 1. Place skin YAML files in `~/.config/k9s/skins/`.
@@ -505,7 +552,7 @@ To enable a transparent terminal background, ensure `bgColor: "default"` is set 
 
 ---
 
-## 21. Deep Configuration Reference (`config.yaml`)
+## 22. Deep Configuration Reference (`config.yaml`)
 
 Full annotated configuration schema for `~/.config/k9s/config.yaml`:
 
@@ -570,7 +617,7 @@ k9s:
 
 ---
 
-## 22. Troubleshooting & Environment Variables
+## 23. Troubleshooting & Environment Variables
 
 ### Common Issues & Fixes
 
@@ -604,7 +651,7 @@ export KUBE_EDITOR="code --wait"
 
 ---
 
-## 23. Expert-Level Hidden Mechanics & Edge Cases
+## 24. Expert-Level Hidden Mechanics & Edge Cases
 
 ### 1. Per-Cluster Context Read-Only Lock
 Instead of manually typing `k9s --readonly`, you can lock production contexts to read-only in `config.yaml` (`clusters.<context>.readOnly: true`). K9s will dynamically switch safety modes when you hop between staging and production via `:ctx`.
@@ -638,7 +685,7 @@ Leaving the local port blank or entering `0` when setting up a port-forward (`Sh
 
 ---
 
-## 24. Master Quick-Reference Cheat Sheet
+## 25. Master Quick-Reference Cheat Sheet
 
 | Category | Shortcut | Description |
 | :--- | :--- | :--- |
